@@ -2784,11 +2784,6 @@ function render(d) {
       if (!c) return '<span class="sub">—</span>';
       return (c.degraded ? B(false, "OUT OF CREDIT") : (c.lowBalance ? B(false, "LOW BALANCE") : B(true, "OK"))) + " " + esc(c.summary || "");
     })(d.providerCredit)],
-    ["Image spend today", (function (s) {
-      if (!s || s.count == null) return '<span class="sub">—</span>';
-      return (s.capReached ? B(false, "CAP REACHED") : B(true, "OK")) + " " + esc(s.count) + " image(s) · $" + esc(Number(s.usd).toFixed(2)) +
-        (s.capUsd != null ? " of $" + esc(Number(s.capUsd).toFixed(2)) + " cap" : " (no cap)") + (s.refused ? " · " + esc(s.refused) + " refused" : "") + " · " + esc(s.deployment) + ", UTC " + esc(s.date);
-    })(d.imageSpend)],
     ["Image generation", (img.available ? B(true, "AVAILABLE") : B(false, img.enabled ? "NO USABLE MODEL" : "DISABLED")) + (img.model ? " · " + esc(img.model) : "") + (img.portraits && img.portraits.total ? " · portraits " + (img.portraits.missing ? '<span class="warn">' : '<span class="ok">') + esc(img.portraits.present) + "/" + esc(img.portraits.total) + "</span>" : "") + (img.lastRun && img.lastRun.failing ? ' · <span class="warn">last run FAILED (0/' + esc(img.lastRun.attempted) + ' — provider not producing images)</span>' : "")],
     ["Cast authoring", (ca && ca.total ? (ca.missing ? '<span class="warn">' : '<span class="ok">') + esc(ca.authored) + "/" + esc(ca.total) + "</span> deep-authored" + (ca.missing ? " · " + esc(ca.missing) + " on floor" : "") : '<span class="sub">—</span>')],
     ["Pre-display check", (function (p) {
@@ -2817,6 +2812,12 @@ function render(d) {
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];
+  rows.push(["Image spend today", (function (s) {  // ORW-1146
+    if (!s || s.count == null) return '<span class="sub">—</span>';
+    const cap = s.capUsd != null ? `of $${Number(s.capUsd).toFixed(2)} cap` : `(no cap)`;
+    const state = s.capReached ? B(false, `CAP REACHED`) : B(true, `OK`);
+    return `${state} ${esc(s.count)} image(s) · $${Number(s.usd).toFixed(2)} ${cap}${s.refused ? ` · ${esc(s.refused)} refused` : ``} · ${esc(s.deployment)}, UTC ${esc(s.date)}`;
+  })(d.imageSpend)]);
   document.getElementById("grid").innerHTML = rows.map(r => '<div class="k">' + esc(r[0]) + "</div><div>" + r[1] + "</div>").join("") +
     '<div class="k">Last backup</div><div>' + backupLine(d.backup) + "</div>";
   // #1599 WI3 — the RED alarm banner: each game-breaking signal (or auto-corrected fault) as its
