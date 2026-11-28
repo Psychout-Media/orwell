@@ -9578,6 +9578,8 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         try:  # ORW-408: one INFO line per turn (pre-display chunks checked / skipped by reason / conflicts by fact)
             from src import predisplay_check as _pd_turn
             _pd_turn.end_turn(kwargs.get("owner"))
+            from src import claim_commit as _cc_end  # ORW-1156: the turn's commit record ends with the turn
+            _cc_end.end_turn(kwargs.get("owner"))
         except Exception as _e:  # failsoft-ok: counter only
             logger.debug("ORW-408: end_turn failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
@@ -10118,7 +10120,8 @@ async def _stream_agent_loop_impl(
     total_start = time.time()
     time_to_first_token = None
     first_token_received = False
-    tool_events = []   # Persist tool executions for history reload
+    from src import claim_commit as _cc  # ORW-1156
+    tool_events = _cc.CommitList(owner)   # Persist tool executions for history reload (ORW-1156: the list also tells the claim check what the engine committed)
     round_texts = []   # Cleaned text per round for history reload
     # F-2/F-4: owed chyron — announcements of a beat the FE pre-resolved this turn reach the client whatever
     # the model says (blank, skipped, or contradicting). Consumed once; the client dispatches `orwell:announcements`.
@@ -11412,6 +11415,46 @@ async def _stream_agent_loop_impl(
                 _pd_ended_at_prefix = True
                 _pd_rw_pending = None
             else:
+                # ORW-1156: the narration CLAIMED a change the engine never committed. When the player explicitly asked for exactly that change, commit it through the real tool first (turnIn, claimBed,
+                # moveTo; never an alliance or a deal), so the redo voices a real result; otherwise the redo is told the real state (the correction line) and the claim is gone.
+                try:
+                    _cc_facts = [c.fact for c in _pd_rw_pending.conflicts]
+                    if any(f in ("claim-bed", "player-room") for f in _cc_facts):
+                        from src import engine_read_cache as _cc_erc
+                        from src.house_rooms import HOUSE_ROOMS as _cc_rooms
+                        _cc_st = _cc_erc.peek("getGameState", owner, fields=("whereabouts",)) or {}
+                        _cc_wh = _cc_st.get("whereabouts") if isinstance(_cc_st, dict) else None
+                        _cc_wh = _cc_wh if isinstance(_cc_wh, dict) else {}
+                        _cc_plan = _cc.commit_plan(
+                            _pd_rw_pending.conflicts, _extract_last_user_message(messages) or "", rooms=_cc_rooms, room_names=_cc_wh.get("roomNames"), here=_cc_wh.get("room"),
+                            claimed_room_id=_cc.claimed_room(_pd_rw_pending.sentence, _cc_wh))
+                        _cc_done = []
+                        for _cc_tool, _cc_args in _cc_plan:
+                            _cc_json = json.dumps(_cc_args)
+                            yield f'data: {json.dumps({"type": "tool_start", "tool": _cc_tool, "command": _cc_json, "round": round_num})}\n\n'
+                            _cc_desc, _cc_result = await execute_tool_block(
+                                ToolBlock(_cc_tool, _cc_json), session_id=session_id, disabled_tools=disabled_tools, tool_policy=tool_policy, owner=owner, workspace=workspace)
+                            _cc_out = str((_cc_result.get("output") or _cc_result.get("error") or "") if isinstance(_cc_result, dict) else "")
+                            yield f'data: {json.dumps({"type": "tool_output", "tool": _cc_tool, "command": _cc_json, "output": "", "exit_code": _cc_result.get("exit_code") if isinstance(_cc_result, dict) else None})}\n\n'
+                            _cc_ev = {"round": round_num, "tool": _cc_tool, "command": _cc_json, "output": "", "exit_code": (_cc_result or {}).get("exit_code")}
+                            if _cc_tool == "turnIn" and not _turn_in_applied(_cc_result):
+                                _cc_ev["exit_code"] = 1  # a held night is not a commit
+                            tool_events.append(_cc_ev)
+                            _cc_id = f"call_{round_num}_claimcommit_{len(tool_events)}"
+                            messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": _cc_id, "type": "function", "function": {"name": _cc_tool, "arguments": _cc_json}}]})
+                            messages.append({"role": "tool", "tool_call_id": _cc_id, "content": f"### {_cc_tool}\n```\n{_cc_out[:4000]}\n```"})
+                            _cc_done.append(_cc_tool)
+                            _note_belt(owner, "claim-commit:" + _cc_tool)
+                            _cc.note({"claimBed": "claim-bed", "moveTo": "player-room"}.get(_cc_tool, ""), "committed", owner)
+                            if _cc_tool == "turnIn" and _cc_ev["exit_code"] in (0, None):
+                                try:
+                                    await _refresh_context_after_turn_in(messages, _force_owner, _cc_out)
+                                except Exception as _cc_rf:  # failsoft-ok: the redo still voices the tool result
+                                    logger.debug("ORW-1156: context refresh after turnIn failed: %s", _cc_rf)
+                        if _cc_done:
+                            messages.append({"role": "system", "content": "(Production note, not for the player.) The player asked for this and the game has now run it (" + ", ".join(_cc_done) + "): continue the reply from the game's result above and voice it; do not narrate it again from the start."})
+                except Exception as _cc_err:  # failsoft-ok: no commit; the regenerate-against-the-real-state redo runs as it would have
+                    logger.warning("[orwell] ORW-1156 claim commit skipped: %s", _cc_err)
                 # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
                 _redo = ""
                 async for _pd_beat, _pd_val in _pd_redo_with_keepalive(
