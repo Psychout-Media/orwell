@@ -2109,6 +2109,40 @@ async def _refresh_context_after_turn_in(messages, owner, turn_in_output) -> boo
         return False
 
 
+# ORW-1154 (complements the ORW-1150 wording fix, which owns what counts as a bedtime sentence): after a bedtime ask that did not put the player to bed, a confused follow-up ("am i awake...?", "why can't I sleep",
+# "I said sleep") is the SAME ask. The memory is per user, in memory only, and ends when a turnIn applies or after 20 minutes.
+_BED_FOLLOWUP_RE = re.compile(
+    r"\bam\s+i\s+(?:still\s+)?awake\b|\b(?:i(?:'m|\u2019m|m|\s+am))\s+still\s+awake\b|\bwhy\s+(?:am\s+i\s+still\s+awake|(?:can'?t|cant|won'?t|wont|am\s+i\s+not)\s+i\s+(?:go\s+to\s+)?(?:sleep|bed))\b"
+    r"|\blet\s+me\s+(?:go\s+to\s+)?(?:sleep|bed)\b|\bi\s+(?:said|asked|told\s+you)\b[^.!?]{0,40}\b(?:sleep|bed)\b|\bcan\s+i\s+(?:please\s+)?(?:go\s+to\s+)?(?:sleep|bed)\b"
+    r"|\bwhy\s+(?:can'?t|cant)\s+i\b[^.!?]{0,20}\b(?:sleep|bed)\b",
+    re.IGNORECASE)
+_BED_ASK_TTL_S = 20 * 60
+_BED_ASKS: "dict[str, float]" = {}  # user -> monotonic time of the last bedtime ask that did not end the night (memory-only)
+
+
+def note_bed_ask(user) -> None:
+    if user:
+        _BED_ASKS[str(user)] = time.monotonic()
+
+
+def clear_bed_ask(user) -> None:
+    _BED_ASKS.pop(str(user), None)
+
+
+def bed_ask_outstanding(user) -> bool:
+    t = _BED_ASKS.get(str(user)) if user else None
+    return t is not None and time.monotonic() - t <= _BED_ASK_TTL_S
+
+
+def _player_means_bed_now(text, user=None) -> bool:
+    """`_player_means_going_to_bed`, or (ORW-1154) a confused follow-up while this user's earlier bedtime ask is still outstanding."""
+    if _player_means_going_to_bed(text):
+        return True
+    if user is None or not isinstance(text, str) or not bed_ask_outstanding(user):
+        return False
+    return bool(_BED_FOLLOWUP_RE.search(re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)))
+
+
 def _bedtime_board_allows(status) -> bool:
     """ORW-310 — the board lets the player turn in: a started game, the clock running and in a deep-night
     band, and NO open player pending. (After a turnIn the clock reads morning, so 'already asleep' is the
@@ -2126,7 +2160,7 @@ def _bedtime_board_allows(status) -> bool:
     return True
 
 
-def _forced_tool_choice_for_bedtime(turn_tool_names, *, player_text, status, tools_sent):
+def _forced_tool_choice_for_bedtime(turn_tool_names, *, player_text, status, tools_sent, user=None):
     """ORW-310 — `tool_choice` forcing `turnIn`, or None. Pure. Forces only when the player CLEARLY went to
     bed, the board allows it, `turnIn` is on the wire and the model has NOT already called it this turn (a
     model that calls `turnIn` itself is never forced or nudged again)."""
@@ -2136,7 +2170,7 @@ def _forced_tool_choice_for_bedtime(turn_tool_names, *, player_text, status, too
         return None
     if "turnIn" not in set(tools_sent or ()):
         return None
-    if not _player_means_going_to_bed(player_text):
+    if not _player_means_bed_now(player_text, user):
         return None
     if not _bedtime_board_allows(status):
         return None
@@ -2146,7 +2180,7 @@ def _forced_tool_choice_for_bedtime(turn_tool_names, *, player_text, status, too
 _BEDTIME_HELD_TIMES = frozenset({"morning", "afternoon", "evening"})
 
 
-def _bedtime_held_note(turn_tool_names, *, player_text, status):
+def _bedtime_held_note(turn_tool_names, *, player_text, status, user=None):
     """ORW-421 - the short system note for the HELD band, or None. Pure. When the player clearly goes to bed
     in the morning/afternoon/evening (the engine's bedtime gate holds `turnIn` there; ORW-310 owns night and
     late-night and `_bedtime_board_allows` is unchanged), the narrator used to write them asleep while the
@@ -2156,7 +2190,7 @@ def _bedtime_held_note(turn_tool_names, *, player_text, status):
         return None
     if "turnIn" in (turn_tool_names or set()):
         return None
-    if not _player_means_going_to_bed(player_text):
+    if not _player_means_bed_now(player_text, user):
         return None
     if not isinstance(status, dict):
         return None
@@ -2172,6 +2206,40 @@ def _bedtime_held_note(turn_tool_names, *, player_text, status):
             "the game will not let them sleep yet. Voice that they cannot settle (restless, the house still going) "
             "and keep them awake. Do not write them falling asleep, do not narrate a night passing or a morning, "
             "and do not call turnIn.")
+
+
+def _bedtime_blocked_note(status) -> Optional[str]:
+    """ORW-1154 - the board is in a night band but will not take the player's bed (a decision or ceremony is open, the season is over): never a silent skip. The narrator voices that in the fiction and says what happens next."""
+    if not isinstance(status, dict) or status.get("started") is False:
+        return None
+    tod = str(status.get("timeOfDay") or "").strip().lower()
+    if tod not in _BEDTIME_FORCE_TIMES or _bedtime_board_allows(status):
+        return None
+    pend = status.get("pending")
+    kind = (pend.get("kind") or "").strip() if isinstance(pend, dict) else ""
+    if not kind:
+        return None
+    return ("(Production note, not for the player.) The player asked to go to bed, but the game will not let them sleep yet: something is still open (" + kind + "). "
+            "Say so in the story - the house is not done with tonight - and tell the player what happens next (they answer or finish it, then they can turn in). "
+            "Do not write them asleep, do not narrate a night passing or a morning, and do not call turnIn.")
+
+
+def _bedtime_refused_note(turn_in_output) -> str:
+    """ORW-1154 - the engine HELD or refused the player's turnIn this turn (the direct run came back unapplied): voice why from its own words and say what happens next. Never silent, never asleep."""
+    why = ""
+    nxt = ""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        if isinstance(data, dict):
+            held = data.get("held") if isinstance(data.get("held"), dict) else {}
+            why = str(held.get("reason") or held.get("next") or data.get("why") or data.get("error") or "").strip()
+            mins = held.get("minutesUntil")
+            if isinstance(mins, (int, float)) and mins > 0:
+                nxt = f" Bed opens in about {int(mins)} minutes."
+    except Exception:
+        pass  # failsoft-ok: tolerant parse of tool output: no readable reason just means the generic line
+    return ("(Production note, not for the player.) The game did NOT put the player to bed" + (f" ({why})" if why else "") + "." + nxt + " Voice that in the fiction (they lie awake, the house still moving), "
+            "tell the player what happens next (what has to finish, or when bed opens), and keep them AWAKE: do not write them asleep, a night passing or a morning, and do not call turnIn.")
 
 
 # ORW-940: "go back to sleep" and the narrator then moved the player out of bed in the same turn. A player who turned in this turn stays in bed unless their OWN words asked to go somewhere else.
@@ -7202,6 +7270,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_nominee_status(text)
                 and not chat_helpers._sentence_has_met_everyone_claim(text)
                 and not chat_helpers._sentence_has_unbacked_morning_claim(text)
+                and not chat_helpers._sentence_has_unbacked_sleep_claim(text)  # ORW-1154
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
                 and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
                 and not chat_helpers.sentence_states_zero_clock_time(text)
@@ -7212,6 +7281,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not any(chat_helpers._sentence_has_house_awake_claim(_p) or chat_helpers._sentence_has_unbacked_morning_claim(_p)
                             or chat_helpers._sentence_has_in_the_clock_claim(_p) or chat_helpers._sentence_has_nominee_status(_p)
                             or chat_helpers._sentence_has_met_everyone_claim(_p)
+                            or chat_helpers._sentence_has_unbacked_sleep_claim(_p)
                             for _p in _split_sentences_keep_dotted_times(text))):
             return text
     except Exception:
@@ -7301,6 +7371,10 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # `turnIn`; DROP the phantom morning before emission and re-ground next turn.
             if chat_helpers._sentence_has_unbacked_morning_claim(part):
                 if not await chat_helpers.screen_streamed_unbacked_morning(owner, part):
+                    continue
+            # ORW-1154: "You go to sleep." while the engine clock reads night and no `turnIn` committed - DROP the phantom sleep before emission and re-ground next turn.
+            if chat_helpers._sentence_has_unbacked_sleep_claim(part):
+                if not await chat_helpers.screen_streamed_unbacked_sleep(owner, part):
                     continue
             # ORW-422: "the house is up" / a morning greeting while the engine clock is before the 8am house wake (early bed => wakes alone, house asleep).
             if chat_helpers._sentence_has_house_awake_claim(part):
@@ -10597,18 +10671,24 @@ async def _stream_agent_loop_impl(
                 _bt_turn_tools = {ev.get("tool") for ev in (tool_events or [])
                                   if isinstance(ev, dict) and ev.get("tool")}
                 _bt_text = _extract_last_user_message(messages) or ""
-                if ("turnIn" not in _bt_turn_tools and "turnIn" in set(_tool_names_sent)
-                        and _player_means_going_to_bed(_bt_text)):
+                # ORW-1154: a rejecter model (the prod narrator) has the player's turnIn run DIRECTLY, which needs no wire entry, so a wire that dropped `turnIn` no longer stands the belt down for it.
+                _bt_rejecter = not _model_honors_forced_tool_choice(model, route=endpoint_url, site="bedtime")
+                if ("turnIn" not in _bt_turn_tools and ("turnIn" in set(_tool_names_sent) or _bt_rejecter)
+                        and _player_means_bed_now(_bt_text, _force_owner)):
                     from src import orwell_engine as _oe_bt
                     _bt_status = await _oe_bt.game_status(user=_force_owner)
+                    note_bed_ask(_force_owner)  # ORW-1154: cleared once a turnIn applies; until then "am i awake...?" is the same ask
                     _bt_choice = _forced_tool_choice_for_bedtime(
-                        _bt_turn_tools, player_text=_bt_text, status=_bt_status, tools_sent=_tool_names_sent)
+                        _bt_turn_tools, player_text=_bt_text, status=_bt_status, tools_sent=set(_tool_names_sent) | ({"turnIn"} if _bt_rejecter else set()), user=_force_owner)
                     if _bt_choice is None and "bedtime-held" not in _rejecter_fallback_sent:
-                        _bt_held = _bedtime_held_note(_bt_turn_tools, player_text=_bt_text, status=_bt_status)
+                        _bt_held = _bedtime_held_note(_bt_turn_tools, player_text=_bt_text, status=_bt_status, user=_force_owner)
                         if _bt_held:  # ORW-421: success-gated - counted only once the note is in the messages
                             _rejecter_fallback_sent.add("bedtime-held")
                             messages.append({"role": "system", "content": _bt_held})
                             _note_belt(owner, "bedtime-held-note")
+                        elif _bedtime_blocked_note(_bt_status):  # ORW-1154: a night-band hold (a decision is open) is told in the fiction too; no belt is counted for it
+                            _rejecter_fallback_sent.add("bedtime-held")
+                            messages.append({"role": "system", "content": _bedtime_blocked_note(_bt_status)})
                     if _bt_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="bedtime"):
                         _forced_tool_choice = _bt_choice
                         _forced_belt_tool = "turnIn"
@@ -10619,6 +10699,7 @@ async def _stream_agent_loop_impl(
                         # forced createCharacter finalize: the week-chapter save and day-condense still run, and the narrator is handed the engine's result to voice.
                         _rejecter_fallback_sent.add("turnIn")
                         _direct_applied = False
+                        _bt_out = ""
                         try:
                             try:  # ORW-395: who was in the room BEFORE turnIn moved the board to morning
                                 _pre_bed_state = await _oe_bt.get_game_state(user=_force_owner)
@@ -10650,9 +10731,13 @@ async def _stream_agent_loop_impl(
                                 logger.info(f"[orwell] ORW-310b ran the player's turnIn directly (rejecter model) round={round_num} user={_force_owner}")
                         except Exception as _bt_dir_err:
                             logger.warning(f"[orwell] ORW-310b direct turnIn skipped: {_bt_dir_err}")
-                        if not _direct_applied:
+                        if _direct_applied:
+                            clear_bed_ask(_force_owner)
+                        else:
                             messages.append({"role": "system", "content": _rejecter_force_fallback_line("turnIn")})
                             _note_belt(owner, "forced-tool-fallback-line:turnIn")
+                            _bt_note = _bedtime_refused_note(_bt_out if isinstance(_bt_out, str) else "")  # ORW-1154: the game would not end the night: the narrator says so in the fiction, never a silent skip
+                            messages.append({"role": "system", "content": _bt_note})
             except Exception as _bt_err:
                 logger.warning(f"[orwell] ORW-310 bedtime force skipped: {_bt_err}")
             # ── ORW-417 (0148): run the player's `nap` when they clearly say they nap and no nap ran this turn (the engine decides everything; success-gated telemetry). ──
@@ -10714,6 +10799,8 @@ async def _stream_agent_loop_impl(
                     _af_notes += list(_af_st.get("notes") or [])
                     _af_status = None
                     for _af_act in (_af_st.get("pending") or []):
+                        if _af_act[0] == "turnIn" and any(isinstance(_ev, dict) and _ev.get("tool") == "turnIn" for _ev in (tool_events or [])):
+                            continue  # ORW-1154: the bedtime belt (which runs first) already ran this turn's turnIn; a second one would meet the morning gate and read as a refused bed
                         _af_why = _af.blocked_precondition(_af_act, _af_blocked)
                         if _af_why:
                             _af_notes.append(f"The player's {_af_act[0]} was NOT run: {_af_why}.")
@@ -10758,9 +10845,8 @@ async def _stream_agent_loop_impl(
                                     if _af_status is None:
                                         from src import orwell_engine as _oe_af
                                         _af_status = await _oe_af.game_status(user=_force_owner)
-                                    _af_held = _bedtime_held_note(set(), player_text=_af_text, status=_af_status)
-                                    if _af_held:
-                                        messages.append({"role": "system", "content": _af_held})
+                                    _af_held = _bedtime_held_note(set(), player_text=_af_text, status=_af_status, user=_force_owner) or _bedtime_refused_note(_af_out)  # ORW-1154: a night-band hold is told in the fiction too, never silent
+                                    messages.append({"role": "system", "content": _af_held})
                                 except Exception as _fs_exc:
                                     _failsoft_note("agent_loop:_stream_agent_loop_impl:3@10666", _fs_exc)
                                     pass
@@ -13811,6 +13897,7 @@ async def _stream_agent_loop_impl(
             if block.tool_type == "askToTalkAlone":
                 _turn_talk_nudges = 1  # the model asked itself: nothing to back-fill
             if block.tool_type == "turnIn" and _turn_in_applied(result):
+                clear_bed_ask(_force_owner)  # ORW-1154: the night ended; no ask is outstanding
                 _turn_slept = True
             _engine_result = _engine_result_for_transcript(block.tool_type, result)
             if _engine_result is not None:

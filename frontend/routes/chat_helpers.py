@@ -7357,6 +7357,51 @@ def _sentence_has_unbacked_morning_claim(text: str) -> bool:
     return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
 
 
+# ORW-1154 (Ryne, prod 2026-11-28 04:25): "You go to sleep." was written while the engine clock read night and no `turnIn` had committed (the bedtime words never reached the engine), so the player was told
+# they slept, then woke "awake". WHETHER THE PLAYER IS ASLEEP is board truth (the night ends only when `turnIn` runs): a sentence that ASSERTS the player falls / is asleep while the clock still reads night or
+# late-night is a phantom, dropped before the player sees it, with a next-turn re-ground. Same narrow shape as the morning guard: a present/past assertion about "you", never a negation, a future or a dream.
+_UNBACKED_SLEEP_RE = re.compile(
+    r"\byou\s+(?:go|went|fall|fell|drift|drifted|slip|slipped|sink|sank|doze|dozed|nod|nodded)\s+(?:off\s+)?(?:to\s+sleep|asleep|off)\b"
+    r"|\byou\s+(?:go|went|fall|fell|drift|drifted|slip|slipped|sink|sank)\s+into\s+(?:a\s+)?(?:deep\s+|dreamless\s+|fitful\s+)?sleep\b"
+    r"|\byou(?:'re|\u2019re|\s+are)\s+(?:fast\s+)?asleep\b"
+    r"|\byou\s+(?:sleep|slept)\b(?!\s+(?:in|with|beside|next|on|under|well|badly|poorly))"
+    r"|\bsleep\s+(?:takes|claims|finds|comes\s+for|pulls)\s+you\b",
+    re.IGNORECASE,
+)
+_UNBACKED_SLEEP_BOARD_TIMES = frozenset({"night", "late-night"})
+
+
+def _sentence_has_unbacked_sleep_claim(text: str) -> bool:
+    """Cheap synchronous pre-filter: does `text` assert the PLAYER goes / is asleep (and is not a negation / future / hypothetical / dream)?"""
+    if not text or not _UNBACKED_SLEEP_RE.search(text):
+        return False
+    return not (_UNBACKED_MORNING_EXEMPT_RE.search(text) or _NEGATION_RE.search(text))
+
+
+async def screen_streamed_unbacked_sleep(user, sentence: str) -> bool:
+    """ORW-1154 mid-stream screen: HOLD (return False) a sentence asserting the player falls asleep while the engine clock still reads night / late-night (no `turnIn` committed); else EMIT (True).
+    Fail-open: any hiccup, an absent clock or another band returns True."""
+    try:
+        if not _sentence_has_unbacked_sleep_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        if not isinstance(status, dict):
+            return True
+        tod = str(status.get("timeOfDay") or "").strip().lower()
+        if tod not in _UNBACKED_SLEEP_BOARD_TIMES or status.get("started") is False:
+            return True
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE GAME - you narrated the player falling asleep, but no `turnIn` ran: the engine clock still reads " + tod + " and the player is AWAKE. "
+            "Do not write them asleep, a night passing or a morning. If they asked to go to bed, call `turnIn` FIRST and voice sleep only from what it returns; if the game holds it, say so in the fiction.")
+        logger.warning("[orwell] pre-emission guard HELD an unbacked-sleep claim for user=%s - engine clock still %s", user, tod)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission unbacked-sleep guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
+
+
 async def _status_with_clock_label(user, status: dict) -> dict:
     """`status` with the engine's `clockLabel` (and nothing else changed). `gameStatus` carries no `clockLabel` - only the `getGameState` projection does (review of #2735) - so when it is
     missing the clock-bearing projection is read FRESH (`get_game_state`: test_orw166 forbids poll-cache reads in this module, which also serves the framing path). Fail-open: any hiccup returns `status` as it was."""

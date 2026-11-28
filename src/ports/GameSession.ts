@@ -2341,6 +2341,8 @@ export interface WhereaboutsView {
    * see - Vault-free; a read-side projection only (no rng, no fold).
    */
   counts?: { room: number; others: number; house: number; voters?: number; asleep?: number };
+  /** ORW-1154: the houseguests asleep in the player's own room (in their own beds). `present` lists only who is AWAKE here; these are in the room too. Absent when nobody is asleep here. */
+  asleepHere?: NamedRef[];
   /**
    * ORW-386 - the HOUSE SEARCH: present ONLY when the caller asks (`whereabouts({search:true})`, the FE does on a turn where the player asks where someone is or
    * searches the house). Walking the whole house is something the player can do, so a search gives each living houseguest's ROOM (and whether the player can walk
