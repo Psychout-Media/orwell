@@ -2253,7 +2253,7 @@ export interface WalkedInView {
 }
 
 export type PlayerMoveView =
-  | { from: string; to: string; refused?: undefined; msg?: string }
+  | { from: string; to: string; refused?: undefined; msg?: string; /** ORW-1138: the houseguests who walked over with the player (a group walk), and those who were with him and stayed. Names only. */ came?: string[]; stayed?: string[] }
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */

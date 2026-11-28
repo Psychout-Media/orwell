@@ -472,6 +472,9 @@ import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, se
 import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, GOSSIP_HEARD, legendFrom, legendSeedProbability } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
+import { stripNonActs } from "../../engine/playerText";
+/** ORW-1138: the player's own words make the walk a group walk. */
+const GROUP_WALK_RE = /\b(?:we|let'?s|lets|let us|us)\b[^.!?\n]*\b(?:go|head|walk|move|come|pick|take|check|find|see)\b|\b(?:go|head|walk|move|come)\b[^.!?\n]*\b(?:together|with me|with us|all of us)\b|\bfollow me\b/i;
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
   "endurance", "physical", "puzzle", "quiz", "memory", "mental", "social",
@@ -8346,7 +8349,10 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.presence) return { playerMove: null, whereabouts: null };
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
-    this.bedRushPreMove(String(req.text ?? "")); // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it
+    const peersBefore = this.companionsOfPlayer(here); // ORW-1138: who the player is with, read before anything moves him
+    // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it. ORW-1138: only when the claim itself is read here; with the bed parse switched off (the act-first round owns this
+    // message's bed claim) the pre-move walked the player into the bedroom and wrote no bed owner.
+    if (req.skip?.includes("bed") !== true) this.bedRushPreMove(String(req.text ?? ""));
     const skipMove = req.skip?.includes("move") === true; // ORW-1014: the act-first round already decided this message's move
     const bedChanged = req.skip?.includes("bed") === true ? false : this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
@@ -8398,10 +8404,13 @@ export class GameSessionAdapter implements GameSession {
       this.persist();
       result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
     } else {
-      const w = this.movePlayer(dest);
+      const w0 = this.movePlayer(dest);
       const now = this.presence.get(me) ?? null;
+      let w = w0;
       if (now === dest) {
-        this.playerMove = { from: here, to: dest, ...this.moveStamp() };
+        const company = this.settleCompanions(peersBefore, here, dest, String(req.text ?? "")); // ORW-1138: they come along (a group walk) or stay, and the move says which
+        if (company.came.length > 0) w = this.whereabouts();
+        this.playerMove = { from: here, to: dest, ...(company.came.length ? { came: company.came } : {}), ...(company.stayed.length ? { stayed: company.stayed } : {}), ...this.moveStamp() };
         this.persist();
         result = { playerMove: { ...this.playerMove }, whereabouts: w };
       } else {
@@ -8410,6 +8419,34 @@ export class GameSessionAdapter implements GameSession {
     }
     result.beatSeq = this.beatSeqNow();
     return idemKey ? this.rememberFoldIdempotent(idemKey, result) : result;
+  }
+
+  /** ORW-1138: the houseguests the player is with right now (awake, active, in his room), by id; empty when alone or the room is unknown. */
+  private companionsOfPlayer(here: Room | null): EntityId[] {
+    if (!this.house || !this.presence || here === null) return [];
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const away = this.notYetArrived();
+    return this.presenceActive().filter((id) => id !== me && this.presence!.get(id) === here && (!awake || awake.has(id)) && !away?.has(id)).sort();
+  }
+
+  /**
+   * ORW-1138: the player walked from `from` to `dest` with `peers` in the room. They come along when the context says so: the player's own words make it a group walk (we / let us / together / follow me), or the self-guided
+   * tour is open (the house walks it with him). Otherwise they stay, and the move names them so the narrator says so. The movers take their seats through the same presence view the whole house reads (no event of their own).
+   */
+  private settleCompanions(peers: readonly EntityId[], from: Room | null, dest: Room, text: string): { came: string[]; stayed: string[] } {
+    if (peers.length === 0 || !this.presence || from === null) return { came: [], stayed: [] };
+    if (this.live?.houseTour && this.live.premiereEntrance?.stage === "entrances") return { came: [], stayed: [] }; // the tour places the house itself (the house walks it with the player); nobody is reported as left behind
+    const group = GROUP_WALK_RE.test(stripNonActs(text));
+    const still = peers.filter((id) => this.presence!.get(id) === from);
+    if (!group) return { came: [], stayed: still.map((id) => this.nameOf(id)) };
+    for (const id of still) {
+      this.presence.set(id, dest);
+      this.presenceBase?.set(id, dest);
+      this.presenceTenure?.set(id, 0);
+      this.presenceZone?.delete(id);
+    }
+    return { came: still.map((id) => this.nameOf(id)), stayed: [] };
   }
 
   /** ORW-934: the clock a search bills per leg (one step into a neighbouring room). Less than a message (5 min): walking next door is quick. */
