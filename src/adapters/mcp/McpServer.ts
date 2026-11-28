@@ -254,6 +254,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       return;
     case "noteMessage":
       if (!isStr(args["messageId"])) refuse("messageId", "a non-empty string (the player message's stable id)");
+      if (args["withIds"] !== undefined && (!Array.isArray(args["withIds"]) || !(args["withIds"] as unknown[]).every((x) => typeof x === "string"))) refuse("withIds", "an array of houseguest ids when present (those in a scene fold still staged from the last reply)");
       return;
     case "moveHouseguest":
       // ADR 0009 — record a narrated NPC relocation: a houseguest id + a room name (both strings).
@@ -785,7 +786,7 @@ export class McpServer {
         return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number; maxMinutes?: number; untilBandEnd?: boolean; untilClock?: number; untilEvent?: boolean });
       case "noteMessage":
         // Clock-per-message (Coordinator 2026-11-05): the FE announces each PLAYER MESSAGE once (idempotent per messageId); the announcement steps the in-game clock one message-step.
-        return this.deps.session.noteMessage({ messageId: String(args["messageId"]) });
+        return this.deps.session.noteMessage({ messageId: String(args["messageId"]), ...(Array.isArray(args["withIds"]) ? { withIds: (args["withIds"] as unknown[]).map(String) } : {}) });
       case "makeDeal":
         return this.deps.session.makeDeal(args as unknown as MakeDealReq);
       case "formAlliance": // 0107

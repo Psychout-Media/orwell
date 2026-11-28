@@ -2001,11 +2001,14 @@ async def get_portrait_prompt(houseguest_id: str, user: str | None = None) -> di
     return await _call("getPortraitPrompt", {"id": houseguest_id}, user=user)
 
 
-async def note_message(message_id: str, user: str | None = None) -> dict:
+async def note_message(message_id: str, user: str | None = None, with_ids: list | None = None) -> dict:
     """Announce ONE player message to the engine clock (per-message pacing): the engine steps
     the in-game clock one message-step, idempotent per ``message_id`` (a retry / two-window
-    re-drive bills nothing). Returns ``{ accepted }``. Closed-set time only, no Vault."""
-    return await _call("noteMessage", {"messageId": str(message_id)}, user=user)
+    re-drive bills nothing). Returns ``{ accepted }``. Closed-set time only, no Vault.
+    ORW-1159: ``with_ids`` names the houseguests of a scene fold still staged from the last reply; they are
+    in the conversation, so the engine keeps them in the player's room through the tick this message steps."""
+    ids = [str(i) for i in (with_ids or []) if isinstance(i, str) and i]
+    return await _call("noteMessage", {"messageId": str(message_id), **({"withIds": ids} if ids else {})}, user=user)
 
 
 async def record_image_beat(houseguest_id: str, image_ref: str, user: str | None = None) -> dict:

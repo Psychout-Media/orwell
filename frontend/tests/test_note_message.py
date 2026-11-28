@@ -47,7 +47,7 @@ def test_missing_id_gets_a_unique_server_id_and_failure_is_swallowed(monkeypatch
 
 def test_build_context_calls_it_once_before_the_model_call():
     src = open(chat_helpers.__file__).read()
-    assert src.count("await note_player_message(client_msg_id, user)") == 1
+    assert src.count("await note_player_message(client_msg_id, user, session_id)") == 1
 
 
 def test_note_refreshes_the_last_seen_beat_seq(monkeypatch):

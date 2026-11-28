@@ -152,6 +152,7 @@ import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
 import type { AskToTalkAloneReq, AskToTalkAloneResult } from "../../ports/GameSession";
 import { TALK_ALONE, decideTalkAlone, talkAloneRoom } from "../../engine/talkAlone";
+import { tetherHolds, type TetherMark } from "../../engine/conversationTether";
 import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
 import { memoryLine, fillSubject, appraiseGoal, mayShareCause } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
@@ -1365,7 +1366,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private messageMode = false;
   private seenMessageIds: string[] = [];
-  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number; reason?: string } {
+  noteMessage(req: { messageId: string; withIds?: readonly string[] }): { accepted: boolean; beatSeq: number; reason?: string } {
     // A message announced before any game exists (the casting interview) steps no in-game clock and changes nothing: refuse it plainly (accepted false + a reason; the transport counts it on /health) instead of
     // answering accepted:true with a small rising counter that makes pre-game chat look like in-game time.
     if (!this.house || !this.live) return { accepted: false, beatSeq: this.beatSeq, reason: "no-game" };
@@ -1404,6 +1405,11 @@ export class GameSessionAdapter implements GameSession {
     // ORW-928: after the engine committed the eviction result (the evictee is named) the reveal and the evictee's exit were voiced on the turn that committed it. Count each later player message, counted BEFORE its own step, so the committing turn reads 0 and voices the night once.
     this.evictionVoicedMsgs = this.live && this.live.playedGame === true && this.live.eviction?.evictee ? this.evictionVoicedMsgs + 1 : 0; // memory-only (like the ceremony beat): a restart mid-night forgets it, never a persisted live field
     { const out = this.live?.competition?.eliminated ?? []; this.compToldOut = this.compOutPrev.filter((id) => out.includes(id)); this.compOutPrev = [...out]; } // ORW-937: counted BEFORE this message's own framing: an exit that was already in the last message's view was voiced in that reply
+    // ORW-1159: the front end names the houseguests of a scene fold still staged from the last reply; they are in the conversation, so the tick this message steps does not walk them out. Marked as of the last reply.
+    if (req.withIds?.length && this.house) {
+      const living = new Set(this.livingIds());
+      this.tetherMark(req.withIds.map((x) => String(x) as EntityId).filter((id) => living.has(id)), this.playerTurnNo - 1);
+    }
     this.advanceClockPerConversation();
     this.heatBedRushOnMessage(); // ORW-999: a player message during the premiere's bed rush is one heat of it (the rush no longer waits on the narrator calling advanceGame)
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
@@ -7979,10 +7985,52 @@ export class GameSessionAdapter implements GameSession {
   /** A recorded player scene's NPC partners: the houseguests the player is talking to (memory-only). */
   noteConversationPartners(ids: readonly EntityId[]): void {
     this.convoPartners = { ids: ids.filter((i) => i !== PLAYER), tick: this.presenceTickCount };
+    this.tetherMark(ids); // ORW-1159: the same people are tethered to the room, bounded
   }
   private conversationHold(): ReadonlySet<EntityId> {
     const c = this.convoPartners;
     return c && this.presenceTickCount - c.tick <= CALM_PRESENCE.holdTicks ? new Set(c.ids) : new Set<EntityId>();
+  }
+  /**
+   * ORW-1159: the conversation tether. A houseguest in an active talk with the player is held in the player's room against the engine's own movement. Marks come from: a recorded scene with them (`noteConversationPartners`),
+   * a narrated move or arrival into the player's room (`recordHouseguestMove`), and the front end's announcement of a scene fold still staged for them (`noteMessage withIds`); an unanswered question they put to the player
+   * (`approachAsked`) holds too. Memory-only, bounded (see `conversationTether.ts`): a restart forgets it and the talk is simply no longer held.
+   */
+  private convoTether = new Map<EntityId, TetherMark>();
+  private tetherMark(ids: readonly EntityId[], turn = this.playerTurnNo): void {
+    for (const id of ids) {
+      if (id === PLAYER) continue;
+      const hour = this.inGameAbsHour();
+      this.convoTether.set(id, { turn, ...(hour !== undefined ? { hour } : {}) });
+    }
+  }
+  /** Who is tethered to the player's room right now: marked and not lapsed, or holding an unanswered question for the player. Played games only. */
+  private tetheredIds(): Set<EntityId> {
+    const out = new Set<EntityId>();
+    const live = this.live;
+    if (!live || live.playedGame !== true) return out;
+    const hour = this.inGameAbsHour();
+    for (const [id, mark] of [...this.convoTether]) {
+      if (tetherHolds(mark, this.playerTurnNo, hour)) out.add(id); else this.convoTether.delete(id);
+    }
+    for (const [id, k] of Object.entries(live.approachAsked ?? {})) {
+      if (k.answered !== true && this.absHour() - k.shownAt < DESIRE.cooldownHours * (1 + k.n)) out.add(id as EntityId);
+    }
+    return out;
+  }
+  /**
+   * ORW-1159: on the player-facing map `next` the movement tick just drew, keep each tethered houseguest who was in the player's room where they were. A production call (a ceremony gather, the Diary Room) runs after
+   * this and still wins; a sleeper is not held; a no-op with nobody tethered.
+   */
+  private enforceConversationTether(prev: Occupancy | null, next: Map<EntityId, Room>): void {
+    const meRoom = next.get(PLAYER);
+    if (!prev || !meRoom || prev.get(PLAYER) !== meRoom) return;
+    const held = this.tetheredIds();
+    if (held.size === 0) return;
+    const awake = this.awakeNow();
+    for (const id of held) {
+      if (prev.get(id) === meRoom && next.has(id) && next.get(id) !== meRoom && (!awake || awake.has(id))) next.set(id, meRoom);
+    }
   }
   presenceTick(rng?: RandomnessSource): void {
     if (!this.house) return;
@@ -8032,6 +8080,7 @@ export class GameSessionAdapter implements GameSession {
     const nextBase = assign(prevBase, false);   // calibration spine — the society's occupancy
     const next = assign(prev, true);            // personality-weighted — the player's positions
     this.enforceTalkHold(next);                 // ORW-727b: a houseguest who agreed to a private word stays; a private room stays closed
+    this.enforceConversationTether(prev, next); // ORW-1159: a houseguest in a live talk with the player is not walked out of the room by the engine's own movement
     // The player's position is authoritative and identical in both views (never personality-weighted) —
     // force the base to agree with the weighted player room so a player overhear of an off-screen scene
     // reads the player's REAL room, and the two views never disagree about where the player is.
@@ -8153,7 +8202,8 @@ export class GameSessionAdapter implements GameSession {
    * player-facing map only (the calibration base is untouched). No such room, or a gathered house: they stay.
    */
   private leaveOnWalkIn(dest: Room, reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[]): void {
-    const movers = reactions.filter((r) => r.reaction === "moves-the-talk");
+    const tethered = this.tetheredIds(); // ORW-1159: a houseguest in a live talk with the player is not walked out by a reaction either
+    const movers = reactions.filter((r) => r.reaction === "moves-the-talk" && !tethered.has(r.id));
     if (!this.presence || movers.length === 0 || this.houseEventInSession()) return;
     const open = (HOUSE_ADJACENCY.get(dest) ?? []).filter((room) => movers.every((m) => this.roomAccessFor(room, m.id) === "open"));
     if (open.length === 0) return;
@@ -8757,6 +8807,8 @@ export class GameSessionAdapter implements GameSession {
     if (!WALKABLE_ROOMS.includes(dest)) return { status: "illegal", whereabouts: this.whereabouts() };
     const held = this.talkHoldNow(); // ORW-727b: a narrated move cannot take the held houseguest out of the room they agreed to, or put anyone into a closed private room
     if (held && (id === held.npc ? dest !== held.room : held.private && dest === held.room)) return { status: "illegal", whereabouts: this.whereabouts() };
+    // ORW-1159: a narrated entrance into the player's room (or the houseguest being voiced there) starts the talk's tether; a narrated exit is the reply voicing their own leaving, so it ends it.
+    if (dest === this.presence.get(this.house.player.id)) this.tetherMark([id]); else this.convoTether.delete(id);
     if (here === dest) return { status: "noop", whereabouts: this.whereabouts() };
     // OPEN set only — `presenceBase` is deliberately NOT touched (calibration neutrality, see above).
     this.presence.set(id, dest);
@@ -10154,7 +10206,7 @@ export class GameSessionAdapter implements GameSession {
    * ORW-249 - the arrival/departure beat: diff the roster frozen at the player's last send (`sendOccupancy`) against who is in the player's room now. Only while the player is still in the room they sent
    * from (a room change makes the old roster stale, exactly as `sendTimeOccupancy`). Names only; absent (empty spread) when nothing changed.
    */
-  private sinceSendBeat(me: EntityId, room: Room, present: NamedRef[], _isUp: (id: EntityId) => boolean, notHere: Set<EntityId> | null | undefined): { sinceSend?: { arrived: string[]; departed: string[] } } {
+  private sinceSendBeat(me: EntityId, room: Room, present: NamedRef[], _isUp: (id: EntityId) => boolean, notHere: Set<EntityId> | null | undefined): { sinceSend?: { arrived: string[]; departed: string[]; left?: Array<{ id: EntityId; name: string; to?: string; toName?: string; why?: string }> } } {
     const sent = this.sendOccupancy;
     if (!sent || sent.get(me) !== room) return {};
     const was = new Set<EntityId>();
@@ -10163,7 +10215,32 @@ export class GameSessionAdapter implements GameSession {
     const arrived = present.filter((p) => !was.has(p.id)).map((p) => p.name);
     const evicted = new Set(this.live?.evictionOrder ?? []);
     const departed = [...was].filter((id) => !now.has(id) && !evicted.has(id)).map((id) => this.nameOf(id));
-    return arrived.length || departed.length ? { sinceSend: { arrived, departed } } : {};
+    const left = this.departuresFromRoom(me, room, sent);
+    return arrived.length || departed.length || left.length ? { sinceSend: { arrived, departed: [...new Set([...departed, ...left.map((l) => l.name)])], ...(left.length ? { left } : {}) } } : {};
+  }
+
+  /**
+   * ORW-1160: every houseguest who was in the player's room at the last send and is not now, with where they went and the engine's reason when it has one (production's Diary Room call, turning in for the night). The
+   * destination is named only for a room the player could watch them step into (next door). Engine moves, schedule pulls and production calls all end here; a move the narrator made itself is already in the prose and
+   * is never in this list (the roster is re-frozen at each send, after it). Names, rooms and a plain reason; no ids in prose, no numbers.
+   */
+  private departuresFromRoom(me: EntityId, room: Room, sent: Occupancy): Array<{ id: EntityId; name: string; to?: string; toName?: string; why?: string }> {
+    if (!this.presence) return [];
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    const diary = this.diaryAwayIds();
+    const awakeNow = this.awakeNow();
+    const out: Array<{ id: EntityId; name: string; to?: string; toName?: string; why?: string }> = [];
+    for (const [id, where] of sent) {
+      if (where !== room || id === me || evicted.has(id) || (this.sendAwake && !this.sendAwake.has(id))) continue;
+      const now = this.presence.get(id);
+      const called = diary?.has(id) === true;
+      if (!called && (now === undefined || now === room)) continue;
+      const dest: Room | undefined = called ? "diary-room" : now;
+      const near = dest !== undefined && (called || (HOUSE_ADJACENCY.get(room) ?? []).includes(dest));
+      const why = called ? "production called them to the Diary Room" : awakeNow && !awakeNow.has(id) ? "turning in for the night" : undefined;
+      out.push({ id, name: this.nameOf(id), ...(near && dest ? { to: dest, toName: this.roomRefOf(dest) } : {}), ...(why ? { why } : {}) });
+    }
+    return out;
   }
 
   /** 0077: a houseguest's live sub-zone in a zoned big room (Vault-free flavor); undefined elsewhere. */

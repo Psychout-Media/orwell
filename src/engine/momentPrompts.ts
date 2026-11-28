@@ -1406,6 +1406,8 @@ export function renderGameContext(view: GameStateView): string {
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
         ? [`    SINCE YOU SPOKE (engine truth - weave in as ONE short beat, never skip it): ${[wa.sinceSend.arrived.length ? `${wa.sinceSend.arrived.join(", ")} just walked in` : "", wa.sinceSend.departed.length ? `${wa.sinceSend.departed.join(", ")} left the room` : ""].filter(Boolean).join("; ")}.`]
         : []),
+      // ORW-1160: each departure with where they went and the engine's reason, handed over like an arrival: the reply voices it in a line or two, and never keeps them in the scene.
+      ...((wa.sinceSend?.left ?? []).map((l) => `    JUST LEFT: ${l.name}${l.toName ? `, to ${l.toName}` : ""}${l.why ? ` (${l.why})` : ""}. Show them going in a line or two before anything else; they are no longer in this room, so no one speaks to them, hears them or looks at them as if they were still here.`)),
       ...(nearby.length
         ? ["    In view (each room you can SEE INTO and EXACTLY who is in it — voice this occupancy, never invent it; closed rooms are opaque and not listed):", ...nearby]
         : ["    No other rooms are in view (you can see into none from here)."]),
