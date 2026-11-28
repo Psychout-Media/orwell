@@ -71,7 +71,8 @@ def gate_decisions(text: str, *, rooms: Optional[Iterable[str]] = None, people: 
         "act-first-no-cue": bool(af.has_cue(text)),
         "act-first-ungrounded": not af.can_commit_nothing(clean, rooms, ctx),
         "search-cue": bool(af.search_cue(clean, people)),
-        "move-veto": not af.move_vetoed(clean),
+        # ORW-1184b: the live move gate is the per-room clause veto (`room_vetoed`, applied to each moveTo in `apply_rules`); `move_vetoed` is no live caller's gate.
+        "move-veto": any(af.grounded_ctx(r, clean, ctx) and not af.room_vetoed(r, clean, ctx) for r in rooms),
         "bed-veto": not af.bed_vetoed(clean),
         "step-veto": not af.step_vetoed(clean, "turnIn"),
     }
