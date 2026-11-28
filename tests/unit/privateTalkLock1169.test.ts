@@ -157,7 +157,7 @@ describe("ORW-1194: the house tour respects a private talk (plan 3.10 rule 4: th
       const occ = s.occupancy()! as unknown as Map<string, Room>;
       const val = [...occ.keys()].find((id) => id !== "player")!;
       occ.set(val, room);
-      (s as unknown as { live: Live & { talkHold?: unknown } }).live.talkHold = { npc: val, room, until: (s as unknown as { absHour(): number }).absHour() + 3, private: true };
+      (s as unknown as { live: { talkHold?: unknown } }).live.talkHold = { npc: val, room, until: (s as unknown as { absHour(): number }).absHour() + 3, private: true };
       for (let i = 0; i < 12 && pe().stage === "entrances"; i++) {
         s.noteMessage({ messageId: `t${i}` });
         (s as unknown as { applyTourPlacement(): void }).applyTourPlacement();
