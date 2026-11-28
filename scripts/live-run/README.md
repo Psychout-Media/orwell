@@ -194,3 +194,32 @@ run dir: the player's message, the new public bubbles, the card, the three scree
 - Adds **T14** (the HUD reads "Early morning" before the wake-up, and only then), from the logged HUD label, and **T19** (a clear move by the player has moved them by the time the reply shows; a named room must match), from the presence strip's room. The live driver logs neither, so there both stay "not covered".
 - Files only: no model call, no game, no network, no key. Exit 0 PASS or NOTE, 1 FAIL, 2 could not run (no `turns.jsonl`).
 - A run played before ORW-109 has no `turns.jsonl` (only the latest `resp.json`), so it cannot be judged turn by turn.
+
+## Dev live check: `live_check.py` (ORW-1145, operator-triggered only)
+
+One runtime flag ON then OFF, on a dev box that stands still, on a fresh account that is playable at once, with the `turnDrivers` numbers reported per arm.
+
+    ORWELL_INTERNAL_TOKEN=<the dev box's internal token> \
+      python3 scripts/live-run/live_check.py --base-url http://<dev host>:<port> --flag act_first_enabled --turns 6 [--seed N] [--max-spend 1.0] [--out DIR] [--keep-account]
+    python3 scripts/live-run/live_check.py --dry-run        # offline self-test: a stub server, no network, no spend
+
+1. **Hold.** `POST /api/admin/ops/deploy-hold` writes `data/.deploy-hold` (`until=<epoch>`). `deploy/orwell-update.sh` honours it (the check is `update_deploy_hold_active` in `deploy/orwell-deploy-hold.sh`): a held run prints "deploy HELD until ...", changes nothing and exits 0
+   (so the dev auto-deploy that restarts both services on every main merge cannot end the run). A hold is at most 240 minutes and is counted from the file's own mtime, so a forgotten hold ends by itself
+   (`ORWELL_DEPLOY_HOLD_MAX_MINUTES`, 1..1440, lowers or raises that cap on the box). `--ignore-hold` (or `ORWELL_UPDATE_IGNORE_HOLD=1`), `--rollback` and `--set-token` skip it. The next update after the hold ends deploys the tip;
+   to catch up at once run `bash orwell-update.sh`.
+2. **Account.** `POST /api/admin/ops/prepare-test-account` makes a `livecheck-<utc>` admin account (admin, so it resolves the global default model), turns its images off, starts the season through the engine with the fixed
+   seed, and authors the WHOLE cast inside that call: the 4 to 6 minute authoring wait is spent there and no chat turn waits on it. If the cast is not fully authored the script stops (it never plays on a floor cast).
+3. **Play.** It logs in as that account, opens the game chat on the default model, and plays N scripted turns (the deterministic `live_full` player: no model picks the words) with the flag ON, then N with it OFF.
+   The flag is the runtime setting of that name, POSTed as the test admin to `/api/auth/settings` and put back as it was. `--max-spend` is the harness's own high estimate; at the cap it stops cleanly (exit 4).
+4. **Report.** `GET /api/admin/health` as the test account: the `turnDrivers` counters for each arm (the delta over that arm), in `report.json` and `report.md`. Numbers only: no player or houseguest text.
+5. **Clear.** Always, even after a failure: restores the flag, deletes the account (unless `--keep-account`), clears the hold.
+
+The three routes (`deploy-hold`, `prepare-test-account`, `delete-test-account`) need the internal token or an admin session and refuse a production deployment (`ORWELL_DEPLOYMENT` unset or `prod`). Set
+`ORWELL_DEPLOYMENT=dev` in the dev box's `data/.env`. The internal token is minted into `data/.env` by `orwell-update.sh` (ORW-1173) and read here from the environment, never from an argument; it is never printed.
+
+### Related ops settings (ORW-1146, ORW-1173)
+
+- `ORWELL_DEPLOYMENT` (data/.env): `prod` (default when unset) or `dev`. On non-prod a NEW account starts with images off (`ORWELL_IMAGE_GEN_NEW_ACCOUNTS=1` keeps them on) and the live-check routes are allowed.
+- `ORWELL_IMAGE_DAILY_CAP_USD`: the day's (UTC) image-spend cap; default none on prod, 1.00 on non-prod, `off` removes it. At the cap every portrait provider call is refused and the `images:daily-cap` alert fires once a day.
+  `ORWELL_IMAGE_COST_ESTIMATE_USD` (default 0.05) prices an image when the provider returned no cost. The admin health page row "Image spend today" shows the count and spend.
+- `ORWELL_INTERNAL_TOKEN`: minted once into data/.env by `deploy/orwell-install.sh` (first install) and `deploy/ensure-internal-token.sh` (an existing box; `--check` is the doctor's warning). Never printed.

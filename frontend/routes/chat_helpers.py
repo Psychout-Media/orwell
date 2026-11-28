@@ -9553,7 +9553,8 @@ def _competition_scene_steer(log, continuing: bool = False, paused: bool = False
         tail = ("; then (3) the winner, by name, exactly as the game gives it" + (f" ({crown})" if crown else "") + "; (4) the walk back inside. Keep each round to two or three sentences so EVERYTHING below, up to and "
                 "including the winner, lands in THIS reply - the game has already run it, so do not carry any round or the winner over to the next reply.")
     return (
-        head + tail + " The wording of each round below is the game's; dress it, do not contradict it."
+        head + tail + " The wording of each round below is the game's; dress it, do not contradict it. Voice ONLY the rounds listed here (earlier rounds were told in earlier replies: never tell them again, and use no sentence an earlier reply already used). "
+        "If the player is among those out in a round, the game reports it: state it as plain fact from the house and never write the player's own fall, steps, thoughts, words or reaction."
         + ("\nROUNDS IN ORDER:\n" + "\n".join(lines) if lines else "")
         + ("\nWINNER: " + crown if crown and not paused else "")
     )

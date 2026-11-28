@@ -286,10 +286,18 @@ export class AllianceStore {
 
   all(): readonly Alliance[] { return this.alliances; }
 
+  /** ORW-1178: the name `want` may take, never one another alliance already bears (compared the way the naming rules compare: case, a leading "The" and punctuation ignored). A clash takes the next free number. */
+  uniqueName(want: string, exceptId?: string): string {
+    const norm = (t: string): string => t.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
+    const taken = new Set(this.alliances.filter((x) => x.id !== exceptId).map((x) => norm(x.name)));
+    if (!taken.has(norm(want))) return want;
+    for (let n = 2; ; n++) if (!taken.has(norm(`${want} ${n}`))) return `${want} ${n}`;
+  }
+
   add(name: string, founder: EntityId, members: EntityId[], formedBeat: number): Alliance {
     const a: Alliance = {
       id: `alliance:${++this.seq}`,
-      name: name.trim() || `Alliance ${this.seq}`,
+      name: this.uniqueName(name.trim() || `Alliance ${this.seq}`),
       members: [...members],
       founder,
       formedBeat,
@@ -306,7 +314,7 @@ export class AllianceStore {
   rename(id: string, name: string): Alliance | undefined {
     const i = this.alliances.findIndex((a) => a.id === id);
     if (i < 0) return undefined;
-    this.alliances[i] = { ...this.alliances[i]!, name };
+    this.alliances[i] = { ...this.alliances[i]!, name: this.uniqueName(name, id) }; // ORW-1178: a rename never lands on a name another alliance bears
     return this.alliances[i];
   }
 

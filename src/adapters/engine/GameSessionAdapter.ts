@@ -20467,7 +20467,8 @@ export class GameSessionAdapter implements GameSession {
   joinAlliance(req: JoinAllianceReq): AllianceView | null {
     this.guardBeatSeq(req.expectedBeatSeq);
     if (!this.house || !this.live) return null;
-    const a = this.alliances.byId(req.allianceId);
+    if (!req.allianceId && req.inviter) return this.joinInviterAlliance(req); // ORW-1178: the player said yes to a houseguest's invitation, not to a listed pitch
+    const a = this.alliances.byId(req.allianceId ?? "");
     if (!a || a.members.includes(PLAYER) || !a.knownTo.includes(PLAYER)) return null; // not an open pitch
     const bondOf = (x: EntityId, y: EntityId): number => (this.rel.edge(x, y).trust + this.rel.edge(x, y).affinity) / 2;
     if (Math.min(bondOf(PLAYER, a.founder), bondOf(a.founder, PLAYER)) < ALLIANCE.joinBondFloor) return null; // not close enough
@@ -20489,6 +20490,28 @@ export class GameSessionAdapter implements GameSession {
     this.agendaRecheck("alliance-changed"); // ORW-312
     this.persist();
     return this.allianceView(joined);
+  }
+
+  /**
+   * ORW-1178 - the player said yes to a houseguest's invitation into a group and the narrator never named a pitch. The engine reads the invitation off the houseguest, not off the prose:
+   *  - the player is already in an alliance with them: nothing changes, that alliance is returned;
+   *  - the houseguest is in an alliance: the invitation lets the player in on it (the pitch the engine never saw), then the usual `joinAlliance` rules apply (the closeness gate);
+   *  - the houseguest is in none: the player founds one with them (`formAlliance`'s own gate).
+   * The alliance is the one the houseguest REALLY belongs to; a roster the narration spoke never decides it. Null when the houseguest is not an active houseguest or the gate refuses.
+   */
+  private joinInviterAlliance(req: JoinAllianceReq): AllianceView | null {
+    const inviter = req.inviter as EntityId;
+    if (!this.house || !this.live || inviter === PLAYER || !this.house.npcs.some((n) => n.id === inviter) || this.live.evictionOrder.includes(inviter)) return null;
+    const theirs = this.alliances.forMember(inviter);
+    const shared = theirs.find((x) => x.members.includes(PLAYER));
+    if (shared) return this.allianceView(shared);
+    const target = theirs.find((x) => x.founder === inviter) ?? theirs[0];
+    if (!target) {
+      const name = (req.name ?? "").slice(0, 60).trim() || this.houseAllianceName(pickAllianceName({ int: (n) => (this.alliances.all().length * 7 + this.beatSeqNow()) % n }, new Set(this.alliances.all().map((x) => x.name)), new Set(this.worldAvoid.allianceNames ?? [])), inviter);
+      return this.formAlliance({ name, members: [inviter], ...(req.expectedBeatSeq !== undefined ? { expectedBeatSeq: req.expectedBeatSeq } : {}) });
+    }
+    this.alliances.reveal(target.id, PLAYER);
+    return this.joinAlliance({ allianceId: target.id, ...(req.name !== undefined ? { name: req.name } : {}), ...(req.expectedBeatSeq !== undefined ? { expectedBeatSeq: req.expectedBeatSeq } : {}) });
   }
 
   /**
@@ -23473,7 +23496,9 @@ export class GameSessionAdapter implements GameSession {
     const view6c = this.allianceRefusal ? { ...view6b, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6b; // ORW-913: a proposed alliance that did not form, for two turns
     // ORW-794: an alliance an NPC has let the player in on and the player has not taken: the narrator is HANDED it (the same roster gameStatus shows, the one the player was told), instead of having to go and look.
     const pitchesOpen = this.alliances.pitchesFor(PLAYER);
-    const view6 = pitchesOpen.length ? { ...view6c, alliancePitchesOpen: pitchesOpen.map((a) => this.allianceView(a, true)) } : view6c;
+    const view6p = pitchesOpen.length ? { ...view6c, alliancePitchesOpen: pitchesOpen.map((a) => this.allianceView(a, true)) } : view6c;
+    const heldNow = this.playerAllianceViews(); // ORW-1178: the roster the engine holds for each alliance the player is in
+    const view6 = heldNow.length ? { ...view6p, alliancesHeld: heldNow } : view6p;
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
     const view7 = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     const votePromises = this.votePromisesForNarrator(); // ORW-750: the vote promises on the record, for each nominee (the week of a nomination only)
@@ -23504,7 +23529,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never), narrationAnchor(this.gameSeed ?? 0, this.narrationUse.turns)) : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq, { day: this.ledgerDay() ?? 1, ...(this.live?.timeOfDay ? { part: this.live.timeOfDay } : {}) }) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never), narrationAnchor(this.gameSeed ?? 0, this.narrationUse.turns)) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
