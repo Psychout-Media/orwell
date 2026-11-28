@@ -11811,6 +11811,10 @@ async def build_chat_context(
             # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
             if not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
                 await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
+            # ORW-1011 C3 (flag ORWELL_COMMIT_FROM_PLAN, default OFF): plan, check and commit the scene record and the planned houseguest moves before the reply.
+            from src import plan_commit as _pc_c3
+            if _pc_c3.enabled():
+                await _pc_c3.commit_before_narrator(message, user, sess=sess, previous_reply=_prev_reply)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no

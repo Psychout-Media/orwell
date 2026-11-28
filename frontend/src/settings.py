@@ -48,6 +48,8 @@ DEFAULT_SETTINGS = {
     # ORW-1014 PR 2 - the ACT-FIRST round: before the prose round one small forced call over a closed toolset commits the player's plain acts (move, advance, sleep,
     # answer an open step). OFF by default; read per turn, so the coordinator flips it at runtime (admin settings, no restart). The env flag ORWELL_ACT_FIRST=1 also turns it on.
     "act_first_enabled": False,
+    # ORW-1011 C3: commit scene records and planned houseguest moves from a pre-reply plan (the belts stay as the fallback). OFF by default; the env flag ORWELL_COMMIT_FROM_PLAN=1 also turns it on.
+    "commit_from_plan_enabled": False,
     # #1782 — the veto-ceremony DECIDE→COMMIT→VOICE micro-call pipeline.
     # OFF by default; this is the runtime KILL-SWITCH so the pipeline can be disabled
     # without a redeploy. OFF ⇒ the veto-ceremony handler runs exactly as today (no
