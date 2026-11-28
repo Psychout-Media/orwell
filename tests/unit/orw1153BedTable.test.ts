@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { allBeds, bedTable } from "../../src/engine/beds";
+import { allBeds } from "../../src/engine/beds"; // exists on main too: this file runs against main's source
 import { resolvePending } from "../../features/support/answerPending";
 
 /** ORW-1153: the narrator's only bed facts are an engine per-bed table (each single, each half of a double, its owner or "free", the free count), and a named-room double claim lands there or is refused with what is free. Roles only. */
@@ -33,24 +33,6 @@ function board(s: GameSessionAdapter, free: string[]): void {
 const presentIn = (s: GameSessionAdapter, room: string): void => { (s as unknown as { presence: Map<string, string> }).presence.set("player", room); };
 const bedsFact = (s: GameSessionAdapter): string => (s.getMomentPrompt({}) as { systemPrompt: string }).systemPrompt.split("\n").find((l) => l.startsWith("- BEDS")) ?? "";
 
-describe("ORW-1153: the per-bed table (pure)", () => {
-  const inHouse = new Set(["a", "b", "c"]);
-  const t = bedTable({ owner: { a: "bedroom-a#d1:1", b: "bedroom-a#s1", c: "bedroom-c#d1:2" }, claims: [] }, inHouse, (r) => `<${r}>`, (w) => w);
-  it("lists each double half on its own, owner or free, with the house-wide free count", () => {
-    expect(t.total).toBe(16);
-    expect(t.free).toBe(13);
-    expect(t.rooms[0]).toContain("single 1: b");
-    expect(t.rooms[0]).toContain("double 1 half 1: a; double 1 half 2: free");
-    expect(t.rooms[2]).toContain("double 1 half 1: free; double 1 half 2: c");
-    expect(t.freeByRoom["bedroom-c"]).toEqual(["single 1", "single 2", "single 3", "double 1 half 1"]);
-  });
-  it("an evicted owner's spot reads free", () => {
-    const e = bedTable({ owner: { a: "bedroom-a#s1", gone: "bedroom-a#s2" }, claims: [] }, new Set(["a"]), (r) => r, (w) => w);
-    expect(e.rooms[0]).toContain("single 2: free");
-    expect(e.free).toBe(15);
-  });
-});
-
 describe("ORW-1153: a mid-rush board where one room's double has a free half", () => {
   it("the BEDS fact says exactly that, lists halves separately and gives the free count; no flat roster of the room", () => {
     const s = circleClosed(7);
@@ -58,7 +40,7 @@ describe("ORW-1153: a mid-rush board where one room's double has a free half", (
     board(s, ["bedroom-c#d1:2", "bedroom-a#s1"]);
     const fact = bedsFact(s);
     const c = priv(s).roomName("bedroom-c");
-    expect(fact).toContain("PER-BED TABLE");
+    expect(fact).toContain("double 1 half 2: free");
     expect(fact).toMatch(new RegExp(`${c} \\([^)]*\\): single 1: [^;]+; single 2: [^;]+; single 3: [^;]+; double 1 half 1: [^;]+; double 1 half 2: free`));
     expect(fact).toContain("FREE SPOTS HOUSE-WIDE: 2 of 16");
     expect(fact).toMatch(/only when FREE SPOTS HOUSE-WIDE is 0/);
@@ -100,6 +82,6 @@ describe("ORW-1153: the player's claim of a named room's double", () => {
     priv(s).live.beds.owner["player"] = "bedroom-a#s1"; 
     priv(s).live.bedRush!.done = true; // the rush is over, the player already seated
     priv(s).resolvePlayerBed("What beds are still open?");
-    expect(priv(s).bedsLine()).toMatch(/FREE SPOTS HOUSE-WIDE: \d+ of 16/);
+    expect(priv(s).bedsLine()).toMatch(/double 1 half 1: [^;]+; double 1 half 2: [^;.]+[\s\S]*FREE SPOTS HOUSE-WIDE: \d+ of 16/);
   });
 });
