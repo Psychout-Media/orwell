@@ -22,7 +22,9 @@ function inside(): GameSessionAdapter {
   s.setBedRushEnabled(false); // ORW-672 / 0201: this isolation test pins the old claim-as-they-walk-in premiere (flag off); the rush has its own tests (bedRush.test.ts)
   s.createCharacter({ playerName: "P", seed: 11 });
   liveOf(s).playedGame = true;
-  for (let i = 0; i < 20 && liveOf(s).premiereEntrance!.arrived <= liveOf(s).premiereEntrance!.playerPos; i++) step(s);
+  // ORW-1134: beds open after the circle - run the entrances and the toast to the close (rush off: the claims then run at once)
+  for (let i = 0; i < 80 && (liveOf(s).premiereEntrance as { stage?: string }).stage !== "done"; i++) step(s);
+  (s as unknown as { ensureBeds(): unknown }).ensureBeds();
   return s;
 }
 /** A bedroom the player is not standing in that still has a free spot (the engine's own rule). */

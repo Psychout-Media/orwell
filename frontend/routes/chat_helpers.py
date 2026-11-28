@@ -1032,7 +1032,8 @@ def defer_postreply_arrival_commit(user) -> bool:
         return True
     except Exception:
         return False
-_TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
+_TOAST_FLOW_BATCHES = 3  # ORW-997 / ORW-1131: an explicit next / continue plays up to this many toast batches (ONE speaker each since ORW-1131, Ryne's "keep going" default of 2-3) in one turn; never past the player's slot
+_TOAST_VOICED: dict = {}  # ORW-1130: runway key -> houseguest names a reply has shown GIVING their toast (any reply, released or not); handed to the engine on the next release so nobody toasts twice
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
 # framing of the same release says so (the engine marks the entrance `voiced`), so a no-advance turn never plays it again. A new release (a new signature) starts again at zero.
@@ -1064,7 +1065,8 @@ def _note_entrance_frame(user, key, stage, ent) -> bool:
         else:
             if stage == "toast":
                 people = tuple(x for x in sig[1] if x not in ("host", "player"))
-                named = bool(people) and _TOAST_BATCH_NAMED.get(key) == people
+                # ORW-1129: the player's own slot is released alone; a reply has invited it, so the player's next message IS their toast (or their pass) and the circle moves on.
+                named = (bool(people) and _TOAST_BATCH_NAMED.get(key) == people) or (not people and "player" in sig[1])
             else:
                 named = bool(sig[2]) and sig[2] in _ARRIVALS_NAMED.get(key, set())
             voiced = n >= 1 and (named or n >= 2)
@@ -1133,10 +1135,37 @@ def arrival_voice_hold(user, narration: str) -> bool:
         return False
 
 
+_TOAST_LINE_RE = re.compile(r"@\[([^\]\n]{2,60})\]\s*[\u2014\u2013-]+\s*[\"\u201c]([^\n]{0,260})")
+
+
+def toasts_voiced_in(narration: str) -> list:
+    """ORW-1130: the houseguests this reply shows GIVING their toast: a tagged dialogue line whose words introduce the speaker by their own first name ("Stella. Anchorage.", "I'm Ana.", "Name's Jace").
+    A reaction that only names someone else is not a toast. Pure; names as tagged."""
+    out = []
+    try:
+        for m in _TOAST_LINE_RE.finditer(narration or ""):
+            full = m.group(1).strip()
+            first = full.split()[0] if full.split() else ""
+            if len(first) < 2:
+                continue
+            words = m.group(2)
+            f = re.escape(first)
+            if (re.match(rf"\s*{f}(?:\s+{re.escape(full.split()[-1])})?\s*[.,!\u2014\u2013-]", words)
+                    or re.search(rf"\b(?:I'm|I am|I\u2019m|name's|name is|name\u2019s)\s+{f}\b", words, re.I)):
+                if full not in out:
+                    out.append(full)
+    except Exception:
+        return out
+    return out
+
+
 def note_premiere_narration(user, narration: str) -> None:
     """ORW-704: after a premiere turn, remember which framed arrivals / which toast batch this reply actually named. Never raises."""
     try:
         key = _runway_key(user)
+        if _PREMIERE_ENTRANCE_STAGE.get(key) == "toast":
+            _v = _TOAST_VOICED.setdefault(key, set())
+            _v.update(toasts_voiced_in(narration))  # ORW-1130: every toast this reply showed, released or not
         named = _ARRIVALS_NAMED.setdefault(key, set())
         for n in _ARRIVALS_FRAMED.get(key) or []:
             if _name_voiced_in(narration, n):
@@ -1207,7 +1236,7 @@ def note_premiere_turn(user, game_state) -> None:
                 _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
-        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES):
+        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES, _TOAST_VOICED):
             _d.pop(key, None)  # ORW-704: the staged premiere is over (or a new game): nothing is owed
         try:
             from src import orwell_engine as _oe_clear
@@ -9724,6 +9753,8 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
             _cue = bool(_al_cue._entrance_pacing(0, player_msg or "", False, False, stage="toast")[0])
             if _cue:
                 _kw["toast_batches"] = _TOAST_FLOW_BATCHES  # ORW-997: an explicit "next" plays several batches in this one turn
+            if _TOAST_VOICED.get(key):
+                _kw["toast_voiced"] = sorted(_TOAST_VOICED[key])  # ORW-1130: whoever a reply already showed toasting is recorded as spoken, never released again
         try:
             adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user, **_kw)
         except Exception as _e:
@@ -9754,6 +9785,15 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
                 _SCHEDULE_STEER.pop(key, None)
         note_premiere_turn(user, fresh)  # re-stamp justArrived / owed arrivals / the voicing check on the board the narrator now sees (clears the release mark, so:)
         mark_premiere_release(user)  # this turn's one release is spent: the narrator's own advanceGame is answered `held`
+        _ev = adv.get("event") if isinstance(adv, dict) else None
+        if _toast and isinstance(_ev, dict) and isinstance(_ev.get("detail"), dict) and _ev["detail"].get("closed"):
+            # ORW-1132 (Ryne, 2026-11-28: "Why are people leaving the room in the middle of this champagne circle ... I think it's ended"): the circle closed with no voice, and the house just drifted off.
+            # The close is a moment: the host ends the circle and opens the bedrooms, and only then does the house break up.
+            _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (
+                "THE CHAMPAGNE CIRCLE HAS JUST CLOSED (engine truth): the last toast has been given. First answer what the player just said, briefly, still in the circle. Then the production host's voice "
+                "comes over the room: thanks the house for the circle and tells everyone the bedrooms are open \u2014 go claim a bed and settle in. Until that line everyone is still in the circle in the living room; "
+                "only after it does the house break up. Voice the host's call once.")
+            return fresh
         if _toast and not _cue:
             # ORW-997 (the player's own request must not lose to the ceremony): the committed toast step is voiced in a short passage, then what the player asked happens in this same reply.
             _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (

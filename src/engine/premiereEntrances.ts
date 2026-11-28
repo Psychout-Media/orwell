@@ -22,8 +22,11 @@ export interface PremiereEntranceState {
   spoke: string[];
 }
 
-/** Toast speakers are released this many per `advanceGame`. */
-export const TOAST_BATCH = 2;
+/**
+ * Toast speakers are released this many per `advanceGame`. ORW-1131 (Ryne, 2026-11-28: "each turn is like one person going ... people responding and kind of playing off of it"): ONE toast per turn, the
+ * room reacting to it, instead of two (and, under ORW-997's flow, up to eight) two-line toasts in a row. The host opens together with the first speaker; the player's own slot is always released alone.
+ */
+export const TOAST_BATCH = 1;
 
 /** A small bounded FIRST READ (witness -> arriver), public-facets-only, seeded side stream. */
 export const PREMIERE_FIRST_READ: { affinity: number; trust: number } = { affinity: 0.02, trust: 0.01 };
@@ -62,6 +65,26 @@ export function planEntrances(
     [order[i], order[j]] = [order[j]!, order[i]!];
   }
   return { order, playerPos: order.indexOf(playerId) };
+}
+
+/**
+ * ORW-1130 / ORW-1129 / ORW-1131 - the next toast release, from the full speaker list and the done list. Pure. Speakers already done (released, or recorded as voiced by the narration) are never released again;
+ * the order is the entrance order. The host opens together with the first speaker; a release never runs past the PLAYER'S slot (it ends just before it, and the slot itself is released alone), so the circle
+ * stops and waits for the player.
+ */
+export function nextToastRelease(all: readonly string[], spoke: readonly string[], playerId: string, size: number): string[] {
+  const done = new Set(spoke);
+  const next = all.filter((x) => !done.has(x));
+  if (next.length === 0) return [];
+  if (next[0] === playerId) return [playerId];
+  const want = Math.max(1, Math.floor(size)) + (next[0] === "host" ? 1 : 0);
+  const out: string[] = [];
+  for (const x of next) {
+    if (out.length >= want) break;
+    if (x === playerId) break;
+    out.push(x);
+  }
+  return out;
 }
 
 /** Host first, then the entrance order (the player's slot stays in the list as a marker). */

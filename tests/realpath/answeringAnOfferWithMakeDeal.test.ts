@@ -34,12 +34,17 @@ describe("a makeDeal to the houseguest who made the offer accepts it (played)", 
   }, 120_000); // a whole played season: past the 30 s default on a CI runner
 
   it("a deal with a houseguest who made no offer is still decided by their own consent (unchanged)", () => {
-    const f = firstSeedWhereSync((seed, sandbox) => offerStanding(seed, sandbox), { from: 1, to: 12, hint: [8, 12], sandbox: (s) => `ao930b-${s}`, what: "a houseguest's offer standing with the player" });
-    const g = f.at;
-    const o = (g.s.getGameState() as { openDealOffer: { from: { id: string } } }).openDealOffer;
-    const others = g.s.livingIds().filter((id) => id !== PLAYER && id !== o.from.id);
-    const answers = others.map((id) => g.s.makeDeal({ with: id, kind: "safety", terms: "x" }));
+    // ORW-1131 moved the seeds (the premiere's circle now runs one toast a turn): scan for a season where a houseguest's offer stands AND somebody else's own read is a no,
+    // instead of pinning one seed. What is pinned is unchanged: the offer does not make anyone else's consent automatic, and it still stands after their answers.
+    const f = firstSeedWhereSync((seed, sandbox) => {
+      const g = offerStanding(seed, sandbox);
+      const o = (g.s.getGameState() as { openDealOffer: { from: { id: string } } }).openDealOffer;
+      const others = g.s.livingIds().filter((id) => id !== PLAYER && id !== o.from.id);
+      const answers = others.map((id) => g.s.makeDeal({ with: id, kind: "safety", terms: "x" }));
+      return answers.some((a) => isRefusal(a)) ? { g, answers } : undefined;
+    }, { from: 1, to: 24, hint: [2, 8, 12], sandbox: (s) => `ao930b-${s}`, what: "a houseguest's offer standing with the player, and another houseguest who says no on their own read" });
+    const { g, answers } = f.at;
     expect(answers.some((a) => isRefusal(a)), "someone else still refuses on their own read").toBe(true);
     expect((g.s.getGameState() as { openDealOffer?: unknown }).openDealOffer, "their offer still stands").toBeDefined();
-  });
+  }, 120_000); // a whole played season: past the 30 s default on a CI runner
 });

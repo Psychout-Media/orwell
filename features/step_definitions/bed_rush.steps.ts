@@ -61,8 +61,10 @@ Then("bed rush: sixteen distinct beds are owned, nobody claimed twice, and the r
   assert.equal(new Set(first.map((c) => c.who)).size, first.length);
   assert.ok(l.bedRush!.tick <= BED_RUSH.ticks);
 });
-Then("bed rush: houseguests claim as they walk in and no rush is saved", function () {
-  for (let i = 0; i < 4; i++) step(s);
+Then("bed rush: nobody claims on walking in, the claims run at the close and no rush is saved", function () {
+  // ORW-1134: with the rush off nobody claims on walking in either; the claims run once the circle has closed
+  closeCircle(s, () => { if (liveOf(s).premiereEntrance!.stage !== "done") assert.equal(liveOf(s).beds?.claims.length ?? 0, 0); });
+  (s as unknown as { ensureBeds(): unknown }).ensureBeds();
   assert.ok((liveOf(s).beds?.claims.length ?? 0) > 0);
   assert.equal(liveOf(s).bedRush, undefined);
 });

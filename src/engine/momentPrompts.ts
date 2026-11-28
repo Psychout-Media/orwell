@@ -2309,9 +2309,14 @@ export interface PremiereEntranceShape {
   playerToast?: "later" | "now" | "done";
   /** ORW-368: speakers still to be released after this batch (the engine's done list). */
   toastRemaining?: number;
+  /** ORW-1129: the player's last message was their own toast (the latest release follows their slot). */
+  playerJustToasted?: true;
   /** ORW-997: the front end reports that an earlier reply already voiced what the game shows now (the latest arrival, or the toast batch): nothing new was committed this turn. */
   voiced?: true;
 }
+
+// ORW-653 / 0205: the circle is the meet-the-cast moment. A rule, never a sample line.
+const MEET_THE_CAST_LINE = `- PREMIERE \u2014 MEET THE CAST (engine truth): each speaker this batch is officially introduced to the house and to the player, in their own voice, from their facts. Where a speaker's facts say how they come across on meeting the player, show it in how they greet the player (conduct and tone only); never state it, never turn it into a number or a verdict, and never say what the player feels about anyone. The player introduces themselves in their own words when they choose; you never write their introduction or their first impressions.`;
 
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
   const e = (pr as { entrance?: PremiereEntranceShape } | null | undefined)?.entrance;
@@ -2420,10 +2425,28 @@ function premiereEntranceLines(
       ];
     }
     const sp = (ent.speakers ?? []).map((x) => (x as { isPlayer?: boolean }).isPlayer ? `${x.name} (the PLAYER'S slot: invite it, never voice it)` : x.name).join(", ");
+    // ORW-1129 (Ryne, 2026-11-28: "it has skipped me in the champagne circle"): the player's slot is released ALONE and the circle waits on it - no houseguest toasts in that reply, it ends on the invitation.
+    const playerOnly = (ent.speakers ?? []).length > 0 && (ent.speakers ?? []).every((x) => (x as { isPlayer?: boolean }).isPlayer || (x as { host?: boolean }).host);
+    if (playerOnly && ent.playerToast === "now") {
+      return [
+        `- PREMIERE — THE TOAST (engine truth): the house is gathered with the player in the living room. ` +
+          (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
+          `IT IS THE PLAYER'S TURN TO TOAST, AND THE CIRCLE WAITS FOR THEM. No houseguest gives a toast or introduces themselves in this reply. In a line or two the room turns to the player (the host, or whoever spoke last, hands them the floor, glasses up) and invites their toast \u2014 invite it once, never force it \u2014 and the reply ENDS on that invitation. ` +
+          `Never write the player's toast, never speak for them, never move the circle on and do not call advanceGame: the game hands the next toast out only after the player has spoken (their toast, or a pass). ` +
+          (typeof ent.toastRemaining === "number" && ent.toastRemaining > 0 ? `THE TOAST IS NOT OVER: ${ent.toastRemaining} more speaker${ent.toastRemaining === 1 ? "" : "s"} still to come after the player. ` : ""),
+        ...(ent.meetTheCast ? [MEET_THE_CAST_LINE] : []),
+      ];
+    }
+    const single = !playerOnly && (ent.speakers ?? []).filter((x) => !(x as { host?: boolean }).host && !(x as { isPlayer?: boolean }).isPlayer).length === 1;
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +
         (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
         (sp ? `Speakers this batch, in order: ${sp}. Voice EVERY houseguest speaker named here, each as their own toast (their name and whichever of age, hometown, job and one line of personality the facts below actually give: use only the facts supplied, never fill in one that is missing), none skipped, merged or summarized. The player's own slot, when listed, is an invitation only, never a toast you voice. ` : "") +
+        // ORW-1131 (Ryne, 2026-11-28): one toast a turn, and the room plays off it - the circle is the cast's first moment all together, for getting to know each other.
+        (single ? `This is ONE person's moment: after the toast, let two or three others in the circle react to it and play off it in their own voices (humour, a shared detail, a callback to an earlier toast, a first small spark or friction), from public facts and what was just said only. A reaction is never a second toast and never another houseguest's introduction. ` : "") +
+        // ORW-1130 (the 11-28 prod premiere: one reply voiced 14 toasts while two were released, and each later release made them toast again): only the speakers named here toast in this reply.
+        `ONLY the speaker${single ? "" : "s"} named in this batch toast${single ? "s" : ""} in this reply: everyone else may react, but must not give their toast or introduce themselves (name, hometown, job) — the game hands each toast out, in order, one at a time. ` +
+        (ent.playerJustToasted ? `THE PLAYER HAS JUST GIVEN THEIR TOAST (their last message): open by letting the room answer it — a laugh, glasses raised, a line back from one or two houseguests — before the next speaker. ` : "") +
         `Open with the production host if the toast has not begun. ` +
         // ORW-368 (Ryne: "it has kept trying to end and had not had everyone go"): the engine, not the narrator, decides when the circle is over.
         (typeof ent.toastRemaining === "number"
@@ -2435,7 +2458,7 @@ function premiereEntranceLines(
         (ent.playerToast === undefined
           ? `the player's slot is theirs to take in chat \u2014 invite it, never force it. `
           : ent.playerToast === "now"
-          ? `THE PLAYER'S SLOT IS IN THIS BATCH: give them ONE line of room to take it in chat (invite it once, never force it, never speak their toast for them), voice the other speaker(s), then call advanceGame for the next batch. The circle does NOT wait for the player and does NOT come back to them. `
+          ? `THE PLAYER'S SLOT IS IN THIS BATCH: hand them the floor (invite it once, never force it, never speak their toast for them) and end the reply on that invitation; the circle waits for the player's own words. `
           : ent.playerToast === "done"
             ? `The player's own toast slot has PASSED (the game has recorded it): never invite the player to toast again and never turn the scene back to them; stay on the circle. `
             : `The player's own toast slot has NOT come up yet: do not invite them to speak, do not speak for them and do not turn the scene back to them; stay on the circle. `) +
@@ -2449,7 +2472,7 @@ function premiereEntranceLines(
         return card && !(x as { isPlayer?: boolean }).isPlayer ? [`- THE TOAST \u2014 ${x.name}'s facts (voice their toast from these only, woven into the scene, never read out as a list):${(observable as (fi: unknown) => string)(card)}${ent.meetTheCast && manner ? ` On meeting the player they come across as ${manner}.` : ""}`] : [];
       })),
       // ORW-653 / 0205: the circle is the meet-the-cast moment. A rule, never a sample line.
-      ...(ent.meetTheCast ? [`- PREMIERE \u2014 MEET THE CAST (engine truth): each speaker this batch is officially introduced to the house and to the player, in their own voice, from their facts. Where a speaker's facts say how they come across on meeting the player, show it in how they greet the player (conduct and tone only); never state it, never turn it into a number or a verdict, and never say what the player feels about anyone. The player introduces themselves in their own words when they choose; you never write their introduction or their first impressions.`] : []),
+      ...(ent.meetTheCast ? [MEET_THE_CAST_LINE] : []),
     ];
   }
   return [];

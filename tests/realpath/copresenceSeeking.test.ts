@@ -30,6 +30,9 @@ const active = (s: Stop): string[] => (s.sess.presenceActive() as string[]).filt
 const seeking = (s: Stop): Array<{ holder: string; listener: string }> =>
   active(s).flatMap((h) => (s.sess.heldSeeker(h, active(s).filter((o) => o !== h)) as Array<{ listener: string; motive: number }>)
     .filter((t) => t.motive >= SEEK.minMotive).map((t) => ({ holder: h, listener: t.listener })));
+/** ORW-1129: the seekers whose listener the holder is NOT keeping away from. A holder avoiding a rattled houseguest (ORW-32, the tell reaction) has that pull turned into an avoid at a fixed weight, with the layer on or off, so there the seeking term has nothing to raise; the rule is about a holder who would walk toward the listener. */
+const seekingNotAvoided = (s: Stop): Array<{ holder: string; listener: string }> =>
+  seeking(s).filter(({ holder, listener }) => !(intentOf(s, holder)?.find((p) => p.target === listener)?.avoid));
 /** Pairs where the holder has something the listener lacks, but has already decided about every one of those tellings (the told ledger, written by play). */
 const decided = (s: Stop): Array<{ holder: string; listener: string }> => {
   const ledger = s.sess.copresenceToldLedger();
@@ -44,10 +47,10 @@ const decided = (s: Stop): Array<{ holder: string; listener: string }> => {
 
 describe("seeking in a played season", () => {
   it("layer OFF: the holder's intent has no seeking term; ON: the pull toward the listener rises and no pull is lowered (two seeds)", async () => {
-    for (const at of await firstStops(2, (s) => quiet(s) && seeking(s).length > 0, wfScan([3, 11], "a quiet moment with a seeking holder"))) {
+    for (const at of await firstStops(2, (s) => quiet(s) && seekingNotAvoided(s).length > 0, wfScan([3, 11], "a quiet moment with a seeking holder the listener is not avoided by"))) {
       const seed = at.seed;
       let checked = 0;
-      for (const { holder, listener } of seeking(at)) {
+      for (const { holder, listener } of seekingNotAvoided(at)) {
         const { off, on } = offOn(at, holder);
         expect(w(on, listener), `seed ${seed}: the pull toward the listener`).toBeGreaterThan(w(off, listener));
         for (const p of off ?? []) expect(w(on, p.target), "a held fact never lowers a pull").toBeGreaterThanOrEqual(p.weight - 1e-12);

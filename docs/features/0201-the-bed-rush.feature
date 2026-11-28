@@ -19,6 +19,6 @@ Feature: The bed rush after the champagne toast
     Given bed rush: a played premiere where the player rushes to a room
     Then bed rush: sixteen distinct beds are owned, nobody claimed twice, and the rush is over within its window
 
-  Scenario: Switched off, the walk-in claim is unchanged
+  Scenario: Switched off, nobody claims on walking in either (ORW-1134)
     Given bed rush: a played premiere with the rush off
-    Then bed rush: houseguests claim as they walk in and no rush is saved
+    Then bed rush: nobody claims on walking in, the claims run at the close and no rush is saved

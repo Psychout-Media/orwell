@@ -68,7 +68,7 @@ Then("every houseguest except the player gave a toast that states their name, ag
 
 Then("each of those toasts carries one line of personality", function (this: BbWorld) {
   const t = of(this);
-  assert.ok(t.full.length > 0 && t.full.every((p) => /one line of (how they come across|personality)/i.test(p)), "every batch asks for the one line of personality, drawn from the stored facts");
+  assert.ok(t.full.length > 0 && t.batches.filter((b) => b.speakers.some((x) => !x.host && !x.isPlayer)).every((b) => /one line of (how they come across|personality)/i.test(b.prompt)), "every batch asks for the one line of personality, drawn from the stored facts");
 });
 
 Then("the host's opening toast needs no basics", function (this: BbWorld) {
@@ -143,7 +143,7 @@ Then("the player and the admin projections carry no Vault data", function (this:
 
 Then("each introduction is a spoken line in the houseguest's own toast voice", function (this: BbWorld) {
   const t = of(this); play(t);
-  assert.ok(t.full.every((p) => /woven into the scene|never a data dump/i.test(p)), "the narrator is told to speak each introduction in the scene, never recite it");
+  assert.ok(t.batches.filter((b) => b.speakers.some((x) => !x.host && !x.isPlayer)).every((b) => /woven into the scene|never a data dump/i.test(b.prompt)), "the narrator is told to speak each introduction in the scene, never recite it"); // ORW-1129: the player's own slot is released alone and carries no houseguest introduction
 });
 
 Then("no introduction shows a raw field name or a list of labelled values", function (this: BbWorld) {
@@ -153,7 +153,8 @@ Then("no introduction shows a raw field name or a list of labelled values", func
 
 Then("the engine hands the narrator the facts to voice and not a script to recite", function (this: BbWorld) {
   const t = of(this); play(t);
-  for (const p of t.full) {
+  // ORW-1129: the player's own slot is released alone and carries no houseguest's facts, so only batches with a houseguest toast are read here.
+  for (const p of t.batches.filter((b) => b.speakers.some((x) => !x.host && !x.isPlayer)).map((b) => b.prompt)) {
     const factLines = p.split("\n").filter((l) => l.includes("'s facts (voice their toast from these only"));
     assert.ok(factLines.length > 0 && factLines.every((l) => /never read out as a list/.test(l) && !/["\u201c]/.test(l.split("never read out as a list):")[1] ?? "")), "each speaker's facts line hands over facts and carries no ready-made quoted line");
     assert.ok(/never (a data dump|read out as a list)/i.test(p), "and the narrator is told never to dump data");
