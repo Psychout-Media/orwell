@@ -24,7 +24,8 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
 
 describe("vote talk in a played season", () => {
   it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
-    const { at, talk } = await firstTalk([11, 10, 19], (_s, t) => t.told.some((c) => c.listener === PLAYER)); // ORW-995: hint 11, 10, 19 (was 5, 1, 3); the census-hometown cast moves the seeded draws (seeds 1-20 probed one per process: 8, 10-14, 16, 17, 19, 20 reach it, 1-7, 9, 15, 18 do not; 11, 10 and 19 reach it in about 10 s, seed 8 takes over 100 s)
+    // ORW-1167: earshot moved the played seasons; seed 5 no longer reaches it (a per-seed probe over 1-12: 1, 3, 6, 9-12 do), so 1 and 3 lead.
+    const { at, talk } = await firstTalk([1, 3, 5], (_s, t) => t.told.some((c) => c.listener === PLAYER));
     const toPlayer = talk.told.filter((c) => c.listener === PLAYER);
     for (const c of toPlayer) {
       const scene = at.engine.events.queryAll().find((e) => !e.hidden && e.type === "conversation" && e.witnessSet.includes(PLAYER) && e.witnessSet.includes(c.speaker) && /voted to keep/.test(String(e.content)));
@@ -59,7 +60,8 @@ describe("vote talk in a played season", () => {
     const caughtCredit = (s: Stop, t: Talk) => t.tally.keepVotes === 0 && t.told.some((c) => c.listener !== PLAYER && beliefOf(s, c.listener, c.id)?.refuted && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
     // 36 since ORW-779 moved the played seasons (of seeds 1-36 in the sandboxes wf-<seed>, only 36 got there); the earlier hints stay as the fallback.
     // ORW-1091: 17 first (the both-sides fold meter moved the played seasons; a wide probe over 1-60 found 17 first); the earlier hints stay as the fallback.
-    const { at, talk } = await firstTalk([39, 60, 17, 36, 3, 20, 1, 24], caughtCredit); // ORW-995: hint 39 (then 60); the census-hometown cast moves the seeded draws. One seed per process on a runner, the caught-credit scenario is rare: on main 3 of 60 seeds reach it (9, 13, 39; 2 of 1-30), on this branch 2 of 60 (39, 60; none of 1-30)
+    // ORW-1167: earshot (a confidence is heard only within earshot) moved the played seasons; a per-seed probe over 1-30 found only 4, 1 and 7 reach it, so they lead.
+    const { at, talk } = await firstTalk([4, 1, 7, 13, 17, 36, 3, 20, 24], caughtCredit);
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
     for (const c of talk.told.filter((x) => x.listener !== PLAYER && x.object === talk.tally.evictee && talk.tally.voters.includes(x.subject))) {
       const b = beliefOf(at, c.listener, c.id);

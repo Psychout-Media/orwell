@@ -4916,6 +4916,13 @@ def _normalize_with_ids(raw, valid_ids) -> tuple:
     return out, rejected
 
 
+def _out_of_earshot_ids(wb) -> set:
+    """ORW-1167: the ids in the player's room whom the engine seats in another zone of a big room (`whereabouts.present[].outOfEarshot`): seen, not heard. Pure; empty on any odd shape."""
+    if not isinstance(wb, dict):
+        return set()
+    return {p.get("id") for p in (wb.get("present") or []) if isinstance(p, dict) and p.get("outOfEarshot") and isinstance(p.get("id"), str)}
+
+
 # The scene-record extraction instruction block (ORW-294: shared verbatim by _auto_record_scene and the merged call).
 _SCENE_EXTRACT_INSTRUCTIONS = (
     "Extract the recordable consequence of a Big Brother scene the player just had with "
@@ -4948,7 +4955,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     "threat/an ally/lying to them' — never for the player's own standing (use `edges` for "
     "that). Propose only direction and relative emphasis — NEVER any number or magnitude "
     "(the engine decides how far, and whether it lands at all). If no houseguest was "
-    'genuinely engaged (a solo/internal beat), reply {"withIds":[]}. #1729 — if THE '
+    'genuinely engaged (a solo/internal beat), reply {"withIds":[]}. ORW-1167 - `withIds` holds only the houseguests the player actually spoke with or acted toward in the exchange; never a houseguest the narration puts at a distance, out of earshot or doing something else nearby, and never every name in the room. #1729 — if THE '
     "PLAYER'S MOVE reads as private out-of-character reflection/venting about the scene "
     "rather than something said or done TO a houseguest, or if it looks like leftover "
     "system/stream-recovery text rather than real player speech, that is NOT a recordable "
@@ -5133,8 +5140,10 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             wb = await _oe.whereabouts(user=owner)
             present_ids = ({p.get("id") for p in (wb.get("present") or []) if isinstance(p, dict)}
                           if isinstance(wb, dict) else None)
+            _far_ids = _out_of_earshot_ids(wb)
         except Exception:
             present_ids = None
+            _far_ids = set()
         # CodeRabbit/Greptile review (both independently confirmed) — `if present_ids:` treated a
         # VALID EMPTY read (the engine says "nobody else is in the room") the same as a failed/None
         # read, since an empty set is falsy: the intersection was skipped and the model's unverified
@@ -5150,6 +5159,18 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             _walked_out = set()
         if present_ids is not None and _walked_out:
             present_ids = set(present_ids) | _walked_out
+        if _far_ids:
+            # ORW-1167: the witness set is who the player could be heard by. A houseguest the engine seats at the far end of the room (out of earshot) is never a participant, whatever the narration did with them.
+            _far_dropped = [i for i in ids if i in _far_ids]
+            if _far_dropped:
+                ids = [i for i in ids if i not in _far_ids]
+                logger.info(f"[orwell] auto-record: dropped out-of-earshot withIds {_far_dropped} (ORW-1167 - engine zone, seen not heard) user={owner}")
+                if not ids:
+                    from src import fold_ledger as _fl_far
+                    if session_id is not None:
+                        _fl_far.note_belt_declined(owner, session_id)
+                    _fl_far.note_scene_nobody(owner)
+                    return False
         if present_ids is not None:
             _off_scene = [i for i in ids if i not in present_ids]
             ids = [i for i in ids if i in present_ids]
@@ -5346,6 +5367,8 @@ async def _auto_record_promise(last_user, house, endpoint_url, model, headers, o
         try:  # only people actually in the room heard it (engine whereabouts); a failed read fails open, like the scene belt
             wb = await _oe.whereabouts(user=owner)
             present = ({p.get("id") for p in (wb.get("present") or []) if isinstance(p, dict)} if isinstance(wb, dict) else None)
+            if present is not None:
+                present = present - _out_of_earshot_ids(wb)  # ORW-1167: a promise is heard only by who is in earshot
         except Exception:
             present = None
         if present is not None:

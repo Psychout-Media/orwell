@@ -79,7 +79,7 @@ describe("ORW-252: a competition that is not due has not started - its fragment 
   it("veto: a competition already running on the house event is not told it has not started", () => {
     const running = buildSystemPrompt("veto-competition", withPhase(base(), "veto-competition", { ceremony: drawn, daySchedule: sched("veto-competition", false), whereabouts: { present: [], companions: [], nearby: [], turnsHere: 0, room: "kitchen", houseEvent: { kind: "veto-competition", title: "Veto" } } as never }));
     expect(running).not.toMatch(/veto competition has NOT started/);
-    const notDueP = buildSystemPrompt("veto-competition", withPhase(base(), "veto-competition", { ceremony: drawn, daySchedule: sched("veto-competition", false) }));
+    const notDueP = buildSystemPrompt("veto-competition", withPhase(base(), "veto-competition", { ceremony: drawn, daySchedule: sched("veto-competition", false), whereabouts: { present: [], companions: [], nearby: [], turnsHere: 0, room: "kitchen" } as never })); // ORW-1167 (drift): the same empty whereabouts, so only the competition fragment differs (the board now carries earshot lines when people are present)
     expect(running.length).toBeGreaterThan(notDueP.length); // the competition fragment is kept
   });
   it("hoh: not due -> the note; due -> the normal fragment; a player's own pending card keeps its script", () => {
