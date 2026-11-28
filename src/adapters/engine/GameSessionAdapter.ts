@@ -478,6 +478,8 @@ import { stripNonActs } from "../../engine/playerText";
 /** ORW-1138: the player's own words make the walk a group walk. */
 /** ORW-1169: an invite put to someone ("want to come?", "care to join me", "come along", "come on"): the invited person may accept or decline. */
 const INVITE_RE = /\b(?:want to (?:come|join|walk|go)|care to (?:come|join|walk)|would you (?:like to )?(?:come|join)|come along|come on|join me|walk with me|come (?:with|outside|over)\b)/i;
+/** ORW-1193: the player's own words refuse company ("alone", "by myself", "on my own", "nobody follow me", "do not come with me"); a refusal is never read as the invitation its words contain. Matches the escort gate's solo veto. */
+const SOLO_RE = /\b(?:alone|by myself|on my own|solo|nobody|no ?one|(?:do not|don'?t|dont|never|not)\s+(?:want\s+(?:you|them|anyone|anybody|everyone)\s+to\s+)?(?:come|follow|join|tag))\b/i;
 const GROUP_WALK_RE = /\b(?:we|let'?s|lets|let us|us)\b[^.!?\n]*\b(?:go|head|walk|move|come|pick|take|check|find|see)\b|\b(?:go|head|walk|move|come)\b[^.!?\n]*\b(?:together|with me|with us|all of us)\b|\bfollow me\b/i;
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
@@ -8257,9 +8259,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.houseTourEnabled || !tourFree(s) || s!.playedGame !== true || !this.presence || !this.house) return;
     const away = this.notYetArrived();
     const step = `${s!.premiereEntrance!.arrived}:${this.seenMessageIds.length}`;
+    const hold = this.talkHoldNow(); // ORW-1194 (plan 3.10 rule 4: the player's own say is not overruled): a private talk in progress is respected by the tour; the partner stays and no one else is placed in the held room
     for (const n of this.house.npcs) {
       if (this.seatOf(n.id) !== "active" || away?.has(n.id)) continue;
-      const room = tourRoomFor(this.gameSeed ?? 0, n.id, step);
+      if (hold && n.id === hold.npc) { if (this.presence.get(n.id) !== hold.room) this.presence.set(n.id, hold.room); continue; }
+      let room = tourRoomFor(this.gameSeed ?? 0, n.id, step);
+      if (hold?.private && room === hold.room) room = this.presence.get(n.id) !== hold.room ? (this.presence.get(n.id) as Room) : "living-room";
       if (this.presence.get(n.id) === room) continue;
       this.presence.set(n.id, room);
       this.presenceTenure?.set(n.id, 0);
@@ -8485,8 +8490,9 @@ export class GameSessionAdapter implements GameSession {
     if (peers.length === 0 || !this.presence || from === null) return none;
     if (this.live?.houseTour && this.live.premiereEntrance?.stage === "entrances") return none; // the tour places the house itself (the house walks it with the player); nobody is reported as left behind
     const acts = stripNonActs(text);
-    const invite = INVITE_RE.test(acts);
-    const group = GROUP_WALK_RE.test(acts) || invite;
+    const solo = SOLO_RE.test(acts); // ORW-1193: "alone" / "by myself" / "do not come with me" means no companions, whatever group or invite words also stand in the line
+    const invite = !solo && INVITE_RE.test(acts);
+    const group = !solo && (GROUP_WALK_RE.test(acts) || invite);
     const still = peers.filter((id) => this.presence!.get(id) === from);
     if (!group) return { ...none, stayed: still.map((id) => this.nameOf(id)) };
     // ORW-1169 (plan 3.10): the person the player is in a private talk with, invited along, may decline; the story says so. Anyone else invited by name goes through the same ask.
