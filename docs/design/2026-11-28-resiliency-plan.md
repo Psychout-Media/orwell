@@ -59,9 +59,10 @@ and 34.86 (from 04:39Z). Codes and counts only.
 - **Open set, the engine records faithfully and never normalizes:** the meaning, texture and consequence of social
   and creative play. The model proposes the consequence shape; the engine owns the magnitude. ADR 0005 principles
   1 to 4; CLAUDE.md, "Sync work must never flatten creative play".
-- **Presence:** `this.presence` is the one source of truth. Houseguest movement is open texture: the model narrates
-  who goes where and the engine records it (the D2 belt); only an impossible claim is closed. ADR 0009, PO ruling 1,
-  D2, D4.
+- **Presence:** `this.presence` is the one source of truth (ADR 0009, D2, D4). **Superseded framing (Kevin,
+  2026-11-27):** the one-way reading of ADR 0009 PO ruling 1 ("the narration says, the engine records") is replaced
+  by the bidirectional design in section 3.10, still a draft for Kevin and Ryne. Kevin: "needs to be able to be 50/50.
+  Bidirectional. And it needs to make sense in normal gameplay. Don't say who 'decides'."
 - **Clock:** time of day is engine state and moves by play, never by wall time; a conversation's felt length is
   model-proposed and engine-bounded; a new day starts only at the 8am wake. ADR 0006 principle 1 and the 24-hour
   amendment.
@@ -182,6 +183,61 @@ closed set. That contradicts ADR 0009 ruling 1 (houseguest movement is narrated 
 model-proposed, engine-bounded durations, and ADR 0005 (alliance talk is open set; only a binding deal waits for the
 player's yes). The rule this plan applies is the one in 3.1 to 3.4: the engine commits the player's own closed-set
 acts first, records the narrated open texture, and no reply may show a change the engine did not make.
+
+### 3.10 Location, both ways (DRAFT for Kevin and Ryne)
+
+**Principle.** People move for two kinds of reasons, and both are equal sources of a move:
+- **From the story:** the player asks ("let's all go to the kitchen"), or the scene moves someone (a houseguest
+  follows, storms out, wanders in).
+- **From the house:** the daily schedule (meals, routines), summons (ceremonies, competitions, a Diary Room call),
+  sleep and waking, and each houseguest's own off-screen wants (seeking someone out, avoiding someone).
+
+Every move, from either source, is a **proposal** to one occupancy record. Nobody else holds a copy: narration,
+the "who's here" strip, act first and the pre-display check all read that record. No source outranks the other;
+every proposal passes the same rules.
+
+**Shared common-sense rules** (a proposal that fails one is not recorded):
+1. **Awake:** a sleeping person does not move. Waking someone is its own event, from either source.
+2. **Reachable:** doors and room rules hold (the HOH room, the Diary Room by call, a locked room).
+3. **Travel takes time:** a next-door room costs a beat; across the house costs minutes on the clock. Nobody is in
+   two places, and nobody teleports.
+4. **Busy people stay busy:** someone mid-ceremony, or mid-conversation with the player, does not vanish unless the
+   scene ends that moment.
+5. **A reason:** every move carries a why (a schedule slot, a summons, a want, or the story's motive), so the story
+   can say it and the engine can remember it.
+
+**When the two sources want different things for the same person, in the same turn:**
+1. Whatever the player has already seen stands; it is never silently undone.
+2. A summons outranks an idle want or a passing story beat.
+3. In the player's own scene, the story's version wins if it passes the rules (the player is watching). Out of
+   view, the house's version wins (nobody is watching to contradict it).
+4. The proposal that loses is **deferred, not dropped:** a house want is retried later, and a story move becomes
+   "she'll be along in a minute", made real when the rules allow.
+
+**Visibility, so nothing pops in or out:**
+- A house move into or out of the player's room is handed to the narration as this turn's arrivals and departures,
+  and must be shown; no one silently appears or vanishes.
+- House moves out of view surface only when the player looks, asks or searches (ORW-934's search reads the record).
+- A story move the record refused is caught before display (the ORW-1156 check), not corrected on the next turn.
+
+**In normal play:**
+- *"Let's all go to the kitchen."* Each person is checked: awake, not busy, reachable. Those who pass walk with him;
+  the story says who stayed and why. People may also decline for their own reasons, a want the house supplies.
+- *The dinner bell.* The schedule moves six people to the dining room; three of them were with the player, so the
+  reply shows them leaving.
+- *A dramatic entrance.* The story wants Jace to walk in. He's awake, one room away, not busy, so it's recorded
+  before the reply is shown. If he were asleep, the reply is regenerated without him.
+- *Eviction night.* The summons gathers everyone in the living room, whatever their wants.
+
+**How we'd know it works:** zero presence mismatches shown to the player; zero people appearing or vanishing without
+a line; a count of deferred moves and how long they wait; the "who's here" strip never disagreeing with the reply.
+
+**Open for Ryne:** (a) are the conflict rules right, especially rule 3 (the story's version in the player's scene,
+the house's out of view)? (b) may houseguests decline the player's "let's all go" for their own reasons, and how
+often? (c) anything in his earlier location rulings this conflicts with?
+
+The engine occupancy double-buffer (ADR 0009's deferred item, which Ryne approved on 2026-11-27) is built to this
+design once it is approved, not before. C3's houseguest-move part stays direction-neutral until then.
 
 ## 4. Three pillars
 
