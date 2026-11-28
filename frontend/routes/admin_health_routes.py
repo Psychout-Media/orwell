@@ -1572,6 +1572,15 @@ def _credit_section() -> dict:
         return {"tripped": [], "degraded": False, "dailySpendUsd": {}}
 
 
+def _image_spend_section() -> dict:
+    """ORW-1146 - today's (UTC) image count and spend against the deployment's daily cap. A failed read is empty."""
+    try:
+        from src import orwell_image_spend
+        return orwell_image_spend.snapshot()
+    except Exception:
+        return {}
+
+
 def _season_section() -> dict:
     """ORW-971 - the held seasons and the season-start steps still owed or failed, for EVERY owner (the operator's view; counts, ids and machine words only).
     ``{holds: [{owner, ageS, authored, total, missing, windowS, overdue}], steps: [{owner, step, status, attempts, reason, ageS}]}``. Best-effort: a failed read is empty."""
@@ -2004,6 +2013,7 @@ async def _health_snapshot(user: str | None) -> dict:
         "backup": _backup_section(),  # ORW-1047: last scheduled backup result and age (RED alarm backup-failing when failed or over 26 h)
 
         "providerCredit": _credit_section(),  # ORW-1019: out-of-credit hosts + daily spend
+        "imageSpend": _image_spend_section(),  # ORW-1146: today's image count and spend against the daily cap
         "seasonHolds": _season_section(),  # ORW-971: every held season (owner, age, authored/total) and every owed or failed start step
         # F10 / BL-019 — the faithfulness-judge health posture (dark ⇒ the RED alarm above fires).
         "faithfulness": faithfulness,
@@ -2774,6 +2784,11 @@ function render(d) {
       if (!c) return '<span class="sub">—</span>';
       return (c.degraded ? B(false, "OUT OF CREDIT") : (c.lowBalance ? B(false, "LOW BALANCE") : B(true, "OK"))) + " " + esc(c.summary || "");
     })(d.providerCredit)],
+    ["Image spend today", (function (s) {
+      if (!s || s.count == null) return '<span class="sub">—</span>';
+      return (s.capReached ? B(false, "CAP REACHED") : B(true, "OK")) + " " + esc(s.count) + " image(s) · $" + esc(Number(s.usd).toFixed(2)) +
+        (s.capUsd != null ? " of $" + esc(Number(s.capUsd).toFixed(2)) + " cap" : " (no cap)") + (s.refused ? " · " + esc(s.refused) + " refused" : "") + " · " + esc(s.deployment) + ", UTC " + esc(s.date);
+    })(d.imageSpend)],
     ["Image generation", (img.available ? B(true, "AVAILABLE") : B(false, img.enabled ? "NO USABLE MODEL" : "DISABLED")) + (img.model ? " · " + esc(img.model) : "") + (img.portraits && img.portraits.total ? " · portraits " + (img.portraits.missing ? '<span class="warn">' : '<span class="ok">') + esc(img.portraits.present) + "/" + esc(img.portraits.total) + "</span>" : "") + (img.lastRun && img.lastRun.failing ? ' · <span class="warn">last run FAILED (0/' + esc(img.lastRun.attempted) + ' — provider not producing images)</span>' : "")],
     ["Cast authoring", (ca && ca.total ? (ca.missing ? '<span class="warn">' : '<span class="ok">') + esc(ca.authored) + "/" + esc(ca.total) + "</span> deep-authored" + (ca.missing ? " · " + esc(ca.missing) + " on floor" : "") : '<span class="sub">—</span>')],
     ["Pre-display check", (function (p) {
