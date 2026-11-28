@@ -11888,7 +11888,8 @@ async def build_chat_context(
             # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
             # ORW-1174: a plain yes to an invitation that stands (an open talk ask, or a houseguest here whose last line invited the player) commits BOTH walks; the player's own move parse must not then walk them away from the inviter.
             from src.orwell_player_move import follow_before_narrator
-            if await follow_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply):
+            # ORW-1168 x ORW-1174: an escort that already committed this message's walks (the player's own invitation along) owns it; the follow slot never commits a second pair of walks over it.
+            if _escort is None and await follow_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply):
                 pass
             elif not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
                 await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)

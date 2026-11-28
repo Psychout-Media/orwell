@@ -97,3 +97,10 @@ def test_no_yes_without_an_invitation_commits_nothing(monkeypatch):
     assert _run(pm.follow_before_narrator("sure", "u-none", "m3", previous_reply="@[Kai Role] Nice weather.", engine=eng)) is False
     assert _run(pm.follow_before_narrator("no thanks", "u-none", "m4", previous_reply="@[Kai Role] Come with me to the storage room.", engine=eng)) is False
     assert not [c for c in eng.calls if c[0] in ("move", "ask", "resolve")]
+
+
+def test_an_escort_that_committed_the_message_keeps_the_follow_slot_from_a_second_pair_of_walks():
+    """ORW-1168 x ORW-1174: 'sure, come with me outside' is both an accept and an invitation along; the escort owns it (wiring guard in the chat build)."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "routes" / "chat_helpers.py").read_text()
+    assert "if _escort is None and await follow_before_narrator(" in src
