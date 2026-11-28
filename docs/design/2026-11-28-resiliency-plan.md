@@ -184,7 +184,7 @@ model-proposed, engine-bounded durations, and ADR 0005 (alliance talk is open se
 player's yes). The rule this plan applies is the one in 3.1 to 3.4: the engine commits the player's own closed-set
 acts first, records the narrated open texture, and no reply may show a change the engine did not make.
 
-### 3.10 Location, both ways (DRAFT for Kevin and Ryne)
+### 3.10 Location, both ways (APPROVED by Ryne, Kevin present, 2026-11-27 ~22:20 MST)
 
 **Principle.** People move for two kinds of reasons, and both are equal sources of a move:
 - **From the story:** the player asks ("let's all go to the kitchen"), or the scene moves someone (a houseguest
@@ -232,12 +232,13 @@ every proposal passes the same rules.
 **How we'd know it works:** zero presence mismatches shown to the player; zero people appearing or vanishing without
 a line; a count of deferred moves and how long they wait; the "who's here" strip never disagreeing with the reply.
 
-**Open for Ryne:** (a) are the conflict rules right, especially rule 3 (the story's version in the player's scene,
-the house's out of view)? (b) may houseguests decline the player's "let's all go" for their own reasons, and how
-often? (c) anything in his earlier location rulings this conflicts with?
+**Ryne's rulings (2026-11-27 ~22:20 MST, question boxes, Kevin present):** (a) the conflict rules above are right as
+written: in view the story's version leads if it passes the rules, out of view the house's leads, a summons beats both,
+what the player saw stands, and the losing move is deferred; (b) houseguests may decline the player's "let's all go"
+for their own wants, often enough to feel real without blocking the player, and the story says who stayed and why.
 
 The engine occupancy double-buffer (ADR 0009's deferred item, which Ryne approved on 2026-11-27) is built to this
-design once it is approved, not before. C3's houseguest-move part stays direction-neutral until then.
+design (approved). C3's houseguest-move part follows the same rules.
 
 ## 4. Three pillars
 
