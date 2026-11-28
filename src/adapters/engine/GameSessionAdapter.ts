@@ -10621,7 +10621,10 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!;
     this.ensurePremiereClock();
     const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
-    if (this.perConversationClockLive()) { s.clockInteractive = true; if (!callingCircle && !(this.premiereOneStepEnabled && this.messageMode && s.playedGame === true)) tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
+    const clockStep = this.perConversationClockLive() && !callingCircle && !(this.premiereOneStepEnabled && this.messageMode && s.playedGame === true);
+    const toastStage = s.premiereEntrance?.stage === "toast";
+    // ORW-1131: the toast is now released one speaker a turn, so its clock is ticked below by PAIRS of speakers (the old batch of two), keeping the evening's in-game time exactly as it was.
+    if (this.perConversationClockLive()) { s.clockInteractive = true; if (clockStep && !toastStage) tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
     const pe = s.premiereEntrance!;
     const me = this.house!.player.id;
     if (pe.stage === "entrances" && s.houseTour && everyoneIn(s)) {
@@ -10667,6 +10670,7 @@ export class GameSessionAdapter implements GameSession {
     }
     // stage "toast": release the next batch of speakers.
     const all = toastSpeakers(pe.order);
+    const spokeBefore = pe.spoke.length;
     // ORW-1130 (Ryne's prod premiere, 2026-11-28: one reply voiced 14 toasts while the engine had released two, then every later message re-released the next pair and they toasted AGAIN - 12 repeats):
     // houseguests the front end saw give their toast in the narration are recorded as spoken here (out of order if need be), so they are never released again. Names, matched to the cast; the player's slot
     // and the host are never recorded this way (the player's toast is the player's own words; the host opens with the first release).
@@ -10682,6 +10686,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-368: the circle closes on its OWN advance, after the last speakers have had a turn as the narrator's toast batch (it used to flip to done in the same advance that released the last batch, so the last speaker(s) were
     // never in a toast prompt and the narrator wrapped the circle up on its own). Only a full done list closes it.
     if (all.every((x) => pe.spoke.includes(x))) {
+      if (clockStep) tickPremiereClock(s, PREMIERE_STEP_HOURS); // the close is one step, as before
       pe.stage = "done";
       s.champagneCircle = "done"; // the existing release
       this.persist();
@@ -10691,6 +10696,8 @@ export class GameSessionAdapter implements GameSession {
     const batches = Math.min(4, Math.max(1, Math.floor(typeof toastBatches === "number" && Number.isFinite(toastBatches) ? toastBatches : 1)));
     const batch = nextToastRelease(all, pe.spoke, me, TOAST_BATCH * batches); // ORW-1130/1129/1131: never a done speaker again, never past the player's slot (released alone), one toast a turn by default
     pe.lastRelease = batch.length;
+    // ORW-1131: one clock step per PAIR of speakers started (the old two-speaker batch), so single releases advance the evening exactly as the old batches did.
+    if (clockStep) for (let k = Math.ceil(spokeBefore / 2); k < Math.ceil((pe.spoke.length + batch.length) / 2); k++) tickPremiereClock(s, PREMIERE_STEP_HOURS);
     for (const sp of batch) {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
@@ -18891,7 +18898,9 @@ export class GameSessionAdapter implements GameSession {
       .filter((f) => !(f.subject !== undefined && strangers.ids.has(f.subject as EntityId)) && !strangers.names.some((n) => f.content.includes(n)))
       .map((f) => this.humanizeTidy(f.content));
     // ORW-400: the same overheard/retold line is listed once (first kept, order stable).
-    const surfaced = [...new Set(surfacedRaw)];
+    // 0102 ("the next day's recap never repeats the prior day's content"): a rumor re-heard today that the previous day's recap already listed is not news; it stays in the journal, not the recap.
+    const prevSurfaced = new Set(s.lastDailyRecap?.surfaced ?? []);
+    const surfaced = [...new Set(surfacedRaw)].filter((line) => !prevSurfaced.has(line));
     const hook = this.buildDailyRecapHook(day, surfaced);
     const recap: DailyRecapView = { day, highlights, surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;

@@ -143,7 +143,7 @@ Then("the player and the admin projections carry no Vault data", function (this:
 
 Then("each introduction is a spoken line in the houseguest's own toast voice", function (this: BbWorld) {
   const t = of(this); play(t);
-  assert.ok(t.full.every((p) => /woven into the scene|never a data dump/i.test(p)), "the narrator is told to speak each introduction in the scene, never recite it");
+  assert.ok(t.batches.filter((b) => b.speakers.some((x) => !x.host && !x.isPlayer)).every((b) => /woven into the scene|never a data dump/i.test(b.prompt)), "the narrator is told to speak each introduction in the scene, never recite it"); // ORW-1129: the player's own slot is released alone and carries no houseguest introduction
 });
 
 Then("no introduction shows a raw field name or a list of labelled values", function (this: BbWorld) {

@@ -2256,6 +2256,9 @@ export interface PremiereEntranceShape {
   voiced?: true;
 }
 
+// ORW-653 / 0205: the circle is the meet-the-cast moment. A rule, never a sample line.
+const MEET_THE_CAST_LINE = `- PREMIERE \u2014 MEET THE CAST (engine truth): each speaker this batch is officially introduced to the house and to the player, in their own voice, from their facts. Where a speaker's facts say how they come across on meeting the player, show it in how they greet the player (conduct and tone only); never state it, never turn it into a number or a verdict, and never say what the player feels about anyone. The player introduces themselves in their own words when they choose; you never write their introduction or their first impressions.`;
+
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
   const e = (pr as { entrance?: PremiereEntranceShape } | null | undefined)?.entrance;
   return e && typeof e === "object" && typeof e.stage === "string" ? e : null;
@@ -2359,6 +2362,7 @@ function premiereEntranceLines(
           `IT IS THE PLAYER'S TURN TO TOAST, AND THE CIRCLE WAITS FOR THEM. No houseguest gives a toast or introduces themselves in this reply. In a line or two the room turns to the player (the host, or whoever spoke last, hands them the floor, glasses up) and invites their toast \u2014 invite it once, never force it \u2014 and the reply ENDS on that invitation. ` +
           `Never write the player's toast, never speak for them, never move the circle on and do not call advanceGame: the game hands the next toast out only after the player has spoken (their toast, or a pass). ` +
           (typeof ent.toastRemaining === "number" && ent.toastRemaining > 0 ? `THE TOAST IS NOT OVER: ${ent.toastRemaining} more speaker${ent.toastRemaining === 1 ? "" : "s"} still to come after the player. ` : ""),
+        ...(ent.meetTheCast ? [MEET_THE_CAST_LINE] : []),
       ];
     }
     const single = !playerOnly && (ent.speakers ?? []).filter((x) => !(x as { host?: boolean }).host && !(x as { isPlayer?: boolean }).isPlayer).length === 1;
@@ -2396,7 +2400,7 @@ function premiereEntranceLines(
         return card && !(x as { isPlayer?: boolean }).isPlayer ? [`- THE TOAST \u2014 ${x.name}'s facts (voice their toast from these only, woven into the scene, never read out as a list):${(observable as (fi: unknown) => string)(card)}${ent.meetTheCast && manner ? ` On meeting the player they come across as ${manner}.` : ""}`] : [];
       })),
       // ORW-653 / 0205: the circle is the meet-the-cast moment. A rule, never a sample line.
-      ...(ent.meetTheCast ? [`- PREMIERE \u2014 MEET THE CAST (engine truth): each speaker this batch is officially introduced to the house and to the player, in their own voice, from their facts. Where a speaker's facts say how they come across on meeting the player, show it in how they greet the player (conduct and tone only); never state it, never turn it into a number or a verdict, and never say what the player feels about anyone. The player introduces themselves in their own words when they choose; you never write their introduction or their first impressions.`] : []),
+      ...(ent.meetTheCast ? [MEET_THE_CAST_LINE] : []),
     ];
   }
   return [];
