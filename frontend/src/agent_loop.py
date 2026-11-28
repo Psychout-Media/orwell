@@ -3578,6 +3578,26 @@ def _validate_statement(raw, scene_ids, roster_ids) -> dict | None:
     return out
 
 
+# ORW-1137: a fold that BINDS the player (an alliance; a deal or a pact would be the same) is recorded only on the player's OWN explicit yes, in his own message. A houseguest's offer line, the
+# houseguests agreeing among themselves, and a player who argued against it never make one. Structure and a closed word list, no model: a doubt is "no yes", and the scene still records as strategy.
+_BINDING_YES_RE = re.compile(
+    r"(?:^|[.!?;,]\s*|\band\s+|\bso\s+)(?:yes|yeah|yep|yup|sure|absolutely|definitely|okay|ok|deal|done|agreed)\b|"
+    r"\b(?:i(?:'m|\u2019m|\s+am)\s+(?:in(?=\s*(?:[.!,;]|$|and\b|for\b|with\b|if\b|then\b|too\b))|on\s+board|down|with\s+(?:you|y'all|us|this|it))|count\s+me\s+in|sign\s+me\s+up|i\s+(?:accept|agree|join|will\s+join|'ll\s+join|want\s+in|am\s+joining|'m\s+joining)|i'll\s+join|"
+    r"let(?:'s|\u2019s|s)\s+(?:do\s+(?:it|this)|form\s+(?:it|the|an|this)|make\s+(?:it|this)\s+official)|you\s+(?:have|got|'ve\s+got)\s+(?:my\s+word|a\s+deal)|we(?:'re|\u2019re|\s+are)\s+(?:in|allies|an\s+alliance))\b",
+    re.IGNORECASE)
+_BINDING_ARGUED_AGAINST_RE = re.compile(
+    r"\b(?:no|nope|not|never|unwise|bad\s+idea|too\s+early|this\s+early|against|rather\s+not|hold\s+off|pass|decline|doubt|risky|dangerous|mistake|maybe|let\s+me\s+think|think\s+about|"
+    r"isn'?t|aren'?t|won'?t|wouldn'?t|shouldn'?t|don'?t|can'?t|cannot|couldn'?t|didn'?t|doesn'?t|exclusive|numbers)\b|n't\b|n\u2019t\b", re.IGNORECASE)
+
+
+def _player_says_yes_to_binding(text) -> bool:
+    """ORW-1137: True only when the player's own message plainly says yes to joining or forming the group (or deal / pact) and nowhere argues against, hedges, or only asks. The houseguests' words are never read here."""
+    s = (text or "").strip()
+    if not s or _is_ooc_aside_text(s) or _player_move_is_only_questions(s):
+        return False
+    return bool(_BINDING_YES_RE.search(s)) and not _BINDING_ARGUED_AGAINST_RE.search(s)
+
+
 def _player_move_is_only_questions(text) -> bool:
     """ORW-781: True when every sentence of the player's move ends in a question mark. Such a move asks; it tells nobody anything, so it can never be logged as a claim (or a coming-clean) the player made.
     A move with any declarative sentence is not matched, so a real statement still counts. Structure only (terminal punctuation), no word list."""
@@ -4681,7 +4701,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. Add `statement` ONLY when the PLAYER, in their own words in the scene, told a houseguest something about a third houseguest that is a checkable claim about the house. `kind` must be exactly one of these claim kinds: targets-you (the subject is targeting the one spoken to), voted-to-evict-you (the subject voted to evict the one spoken to), final-two-with (the subject has a final two with `object`), going-after (the subject is going after `object`), talking-about (the subject has been talking about `object` behind their back), lying-about (the subject is lying to `object`), voted-against (the subject voted to evict `object`), voted-to-keep (the subject voted to keep `object`), has-reputation (the player says the subject is known around the house as a type of player; then `label` is the engine's role word the player's words mean: snake, floater, villain, peacemaker, jokester, therapist or outcast, and the statement is left out when none fits). `to` is the houseguest the player said it to, `about` is the subject, and `object` is left out when the kind does not name a second houseguest. Never for the player's own opinions, guesses or jokes, and never when the kind does not fit; otherwise omit it. Within `statement`, add `retracts` (true, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to that something the player told that same houseguest earlier was false; `to` is that houseguest and `about` the houseguest it concerned, left out when unclear. Add `tellsAbout` (a houseguest id, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to (`to`, an ally) the truth about something false they told that other houseguest; never both. Never for the player's doubts, jokes or a change of mind; otherwise omit them. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Add `actor` ONLY when a houseguest, not the player, did the act that `kind` names to the player; its value is that houseguest's roster id and it must also be in `withIds`; when the player did it, or no one clearly did, omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
     "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
     "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
-    "emotional/strategic direction. Add `consequence` ONLY when "
+    "emotional/strategic direction; pick alliance ONLY when THE PLAYER'S MOVE itself says yes to joining or forming the group, never for a houseguest's offer, houseguests agreeing among themselves, or a player who argues against it (those are strategy). Add `consequence` ONLY when "
     "the scene moves different houseguests DIFFERENTLY (e.g. it warms one and threatens "
     "another); otherwise omit it. Use `aboutEdges` SPECIFICALLY when the player pitched one "
     "houseguest's opinion of a THIRD houseguest — 'I told holder that about is the real "
@@ -4903,6 +4923,14 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 _fl_decl.note_scene_nobody(owner)  # ORW-346/507: everyone proposed was off-scene: no scene with anyone to fold (owner-scoped, so it must not depend on session_id: E22's rich extraction runs without one)
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
+        if kind == "alliance" and not _player_says_yes_to_binding(last_user):
+            # ORW-1137: the extraction read the narration (a houseguest's offer, the houseguests agreeing among themselves) as the player joining. No alliance without the player's own yes: the scene records as strategy,
+            # and the aligned edges that would have bound the player to the group are dropped.
+            kind = "strategy"
+            _cons_dropped = obj.get("consequence")
+            if isinstance(_cons_dropped, dict) and isinstance(_cons_dropped.get("edges"), list):
+                obj = {**obj, "consequence": {**_cons_dropped, "edges": [e for e in _cons_dropped["edges"] if not (isinstance(e, dict) and e.get("direction") == "more-aligned")]}}
+            logger.info(f"[orwell] auto-record: alliance kind downgraded to strategy, the player's own message holds no yes (ORW-1137) user={owner}")
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."
         # 0066 Ext 6 (PR 2) — the model's proposed scene DURATION in minutes. The engine bounds it
         # (`feltHoursFromMinutes`, 15-240) and paces the scene-based clock by it; None/invalid ⇒ the engine's

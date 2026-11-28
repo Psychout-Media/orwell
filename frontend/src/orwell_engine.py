@@ -2374,7 +2374,7 @@ def last_pending(user=None):
     return _LAST_PENDING.get(user or "")
 
 
-async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None, skip: list | None = None) -> dict:
+async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None, skip: list | None = None, max_legs: int | None = None) -> dict:
     """ORW-419 (intent-first moves): ask the engine to resolve the PLAYER'S OWN move from their message text, BEFORE the
     narrator runs. The engine parses the words, moves the player through the same code as ``moveTo`` (a comp/ceremony pin
     refuses it in fiction) and records the Vault-free ``playerMove`` ``{from, to}`` / ``{refused, reason}`` on the turn
@@ -2387,4 +2387,6 @@ async def resolve_player_move(text: str, idempotency_key: str | None = None, use
         args["idempotencyKey"] = str(idempotency_key)
     if skip:  # ORW-1014: the act-first round already decided this message's move and/or bed claim; the other resolvers in the seam still run
         args["skip"] = [str(x) for x in skip if x in ("move", "bed")]
+    if max_legs is not None:  # ORW-1135: the act-first caller caps the legs of the search it commits (and takes the 'right here' result for a target already in the room)
+        args["maxLegs"] = int(max_legs)
     return await _call("resolvePlayerMove", args, user=user)
