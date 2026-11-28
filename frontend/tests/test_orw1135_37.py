@@ -250,10 +250,10 @@ def test_other_kinds_are_untouched(monkeypatch):
     assert env.writes[0]["kind"] == "bonding"
 
 
-# ── the replay corpus rows (also fed to the dev replay harness): tests/fixtures/orw1014/search_vs_question.json ─────────────────────────────
+# ── the replay corpus rows (also fed to the dev replay harness): frontend/tests/fixtures/orw1014_search_vs_question.json ─────────────────────────────
 def test_the_replay_corpus_rows_agree_with_the_validator():
     import pathlib
-    rows = json.loads((pathlib.Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "orw1014" / "search_vs_question.json").read_text())
+    rows = json.loads((pathlib.Path(__file__).resolve().parent / "fixtures" / "orw1014_search_vs_question.json").read_text())
     assert len(rows) >= 23 and any(r["cls"] == "prod-code" for r in rows)
     for r in rows:
         got = af.validate_calls([{"name": "search", "arguments": {"who": "Dana"}}], text=r["text"], rooms=ROOMS, ctx=r["ctx"])
