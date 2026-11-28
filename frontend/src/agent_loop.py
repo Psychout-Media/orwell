@@ -3857,6 +3857,30 @@ async def _settle_pending_fold(owner, session_id) -> bool:
 # Model-driven moveTo always takes precedence. Vault-free (whereabouts is a Vault-free projection),
 # fail-closed (any hiccup just skips), and it never invents a move the player did not make.
 _MOVE_TOOLS = {"moveTo"}
+
+
+def _restore_move_tools_for_act_first(schemas, owner, disabled_tools=None):
+    """ORW-1128 defence in depth. Under ORWELL_ACT_FIRST the act-first round is meant to own the player's move, so the narrator must never be the one left without `moveTo` when act-first did nothing
+    this turn (noAction, skipped, error). The player's own moves are the narrator's to make then (the engine never relocates a person on its own), so `moveTo` goes back into the tool list. A bed
+    claim has no narrator tool: the engine's own text parser claims it (the slot hands the message to it when act-first commits nothing). Returns the list, unchanged when `moveTo` is already in it
+    or act-first committed this turn."""
+    try:
+        from src import act_first as _af_r
+        if not _af_r.enabled():
+            return schemas
+        if any((t.get("function") or {}).get("name") == "moveTo" for t in schemas):
+            return schemas
+        if _af_r.peek_outcome(owner) == "acted":
+            return schemas
+        if disabled_tools and "moveTo" in disabled_tools:
+            return schemas
+        extra = [t for t in FUNCTION_TOOL_SCHEMAS if (t.get("function") or {}).get("name") == "moveTo"]
+        if extra:
+            logger.warning("[orwell] ORW-1128: moveTo was missing from the narrator's tools on an act-first turn that committed nothing; restored user=%s", owner)
+        return list(schemas) + extra
+    except Exception as _e:  # failsoft-ok: the tool list stays as built
+        logger.debug("ORW-1128: move tool restore failed: %s", _e)
+        return schemas
 _MAX_MOVE_NUDGES_PER_TURN = 1  # at most one auto-move per finishing turn
 # The canonical house floor plan (mirrors src/domain/house.ts HOUSE_ROOMS). The engine no-ops an
 # unknown room; matching here keeps the extraction honest and the pre-filter cheap.
@@ -10332,8 +10356,10 @@ async def _stream_agent_loop_impl(
             if "nap" in _rejecter_fallback_sent:  # ORW-417: the FE already ran (or the engine refused) this turn's nap - the model cannot nap the player twice in one turn
                 all_tool_schemas = [t for t in all_tool_schemas if t.get("function", {}).get("name") != "nap"]
 
+        if all_tool_schemas and _is_live_game and not _force_answer:
+            all_tool_schemas = _restore_move_tools_for_act_first(all_tool_schemas, owner, disabled_tools)  # ORW-1128: a move is never left to a narrator that cannot make it
         _tool_names_sent = [t.get("function", {}).get("name") for t in (all_tool_schemas or []) if t.get("function")]
-        logger.info(f"[agent-debug] round={round_num} model={model} _is_api_model={_is_api_model} tools_sent={len(_tool_names_sent)} tool_names={_tool_names_sent[:15]} relevant_tools={sorted(_relevant_tools)[:15] if _relevant_tools else 'ALL'}")
+        logger.info(f"[agent-debug] round={round_num} model={model} _is_api_model={_is_api_model} tools_sent={len(_tool_names_sent)} tool_names={_tool_names_sent} relevant_tools={sorted(_relevant_tools)[:15] if _relevant_tools else 'ALL'}")
 
         # ── #1154 / ADR 0016 §D — FORCE the engine call (tool_choice) at a catastrophic-miss beat. ──
         # Computed PER ROUND, right before the stream, and passed straight to the wire. Default None ⇒
