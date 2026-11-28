@@ -20,6 +20,7 @@ GATES = (
     "act-first-prefilter",  # act_first.prefilter: empty / out-of-character, the model is not asked
     "act-first-no-cue",  # act_first.decide: no cue and no plain act in the words, the model is not asked
     "act-first-ungrounded",  # act_first.can_commit_nothing: every call would be rejected, so noAction by construction
+    "act-first-accept",  # act_first.accept_intent: a plain yes to a standing invitation (ORW-1174)
     "act-first-plain-acts",  # act_first.plain_acts: the plain words commit an act without the model
     "search-cue",  # act_first.search_cue: a houseguest named in the words with search offered
     "move-veto",  # act_first.room_vetoed: a precision veto on a move

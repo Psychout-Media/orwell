@@ -36,6 +36,7 @@ function toNominations(s: Any, hoh: "player" | "npc"): void {
   const live = s.live as LiveSeasonState;
   expect(live.beat).toBe("nominations");
   live.hoh = hoh === "player" ? PLAYER : live.active.find((h) => h !== PLAYER)!;
+  delete live.talkAsk; // ORW-1174: the crowning opened a talk ask from the REAL HOH; this helper reseats the HOH, so that ask no longer belongs to anyone here (it named a nominee-to-be by fixture accident, not by engine)
   live.preNomsNightPassed = true; // the night gate is its own earlier beat
 }
 
