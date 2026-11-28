@@ -106,3 +106,66 @@ describe("ORW-1169: a named invite takes the invited along, who may decline", ()
     expect(s.whereabouts()!.privateTalk).toBeUndefined();
   });
 });
+
+describe("ORW-1193: the player's own refusal of company is not read as an invitation", () => {
+  const SOLO = [
+    (d: string) => `Come on, that is not fair. I am going to the ${d} by myself.`,
+    (d: string) => `I do not want you to come along. I go to the ${d} alone.`,
+    (d: string) => `Nobody follow me, I walk to the ${d}.`,
+    (d: string) => `Do you want to come? No, never mind. I head to the ${d} alone.`,
+    (d: string) => `I would like to be alone, so I head to the ${d}. Do not come with me.`,
+    (d: string) => `I need some air, so I go to the ${d} on my own.`,
+  ];
+  for (const [i, line] of SOLO.entries()) {
+    it(`solo line ${i + 1} leaves the houseguest where they are`, () => {
+      const { s, val, valName, dest, here } = oneToOne();
+      (s as unknown as { talkAloneConsent: () => boolean }).talkAloneConsent = () => true;
+      const r = s.resolvePlayerMove({ text: line(roomDisplayName(dest)) });
+      const pm = r.playerMove as { to?: string; came?: string[]; stayed?: string[] };
+      expect(pm?.to).toBe(dest);
+      expect(pm.came).toBeUndefined();
+      expect(pm.stayed).toEqual([valName]);
+      expect(s.occupancy()!.get(val as never)).toBe(here);
+    });
+  }
+  it("controls: 'let's go' and a real invite still take them along", () => {
+    for (const line of [(d: string) => `Let's go to the ${d}.`, (d: string) => `Come with me, I head to the ${d}.`]) {
+      const { s, val, valName, dest } = oneToOne();
+      (s as unknown as { talkAloneConsent: () => boolean }).talkAloneConsent = () => true;
+      const text = line(roomDisplayName(dest));
+      const r = s.resolvePlayerMove({ text });
+      expect(r.playerMove, text).not.toBeNull();
+      expect((r.playerMove as { came?: string[] }).came).toEqual([valName]);
+      expect(s.occupancy()!.get(val as never)).toBe(dest);
+    }
+  });
+});
+
+describe("ORW-1194: the house tour respects a private talk (plan 3.10 rule 4: the lock stands, the tour does not overrule it)", () => {
+  it("over the tour's steps the partner stays and no outsider is placed in the held room", () => {
+    for (const seed of [2, 4]) {
+      const s = new GameSessionRegistry().sandboxFor(`orw1194-${n++}`).session as GameSessionAdapter;
+      s.setPremiereEntrancesEnabled(true);
+      s.setBedRushEnabled(true);
+      s.setHouseTourEnabled(true);
+      s.createCharacter({ playerName: "P", seed });
+      liveOf(s).playedGame = true;
+      s.noteMessage({ messageId: "m0" });
+      const pe = () => (s as unknown as { live: { premiereEntrance: { stage: string; arrived: number; playerPos: number } } }).live.premiereEntrance;
+      for (let i = 0; i < 20 && pe().arrived <= pe().playerPos; i++) step(s);
+      const room = s.whereabouts()!.room as Room;
+      const occ = s.occupancy()! as unknown as Map<string, Room>;
+      const val = [...occ.keys()].find((id) => id !== "player")!;
+      occ.set(val, room);
+      (s as unknown as { live: { talkHold?: unknown } }).live.talkHold = { npc: val, room, until: (s as unknown as { absHour(): number }).absHour() + 3, private: true };
+      for (let i = 0; i < 12 && pe().stage === "entrances"; i++) {
+        s.noteMessage({ messageId: `t${i}` });
+        (s as unknown as { applyTourPlacement(): void }).applyTourPlacement();
+        if (!liveOf(s).talkHold) break;
+        const o = s.occupancy()!;
+        expect(o.get(val as never), `seed ${seed} step ${i}: partner stays`).toBe(room);
+        expect([...o].filter(([id, r]) => r === room && id !== "player" && id !== val), `seed ${seed} step ${i}: no outsider`).toEqual([]);
+      }
+    }
+  });
+});

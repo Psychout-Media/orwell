@@ -19,13 +19,14 @@ describe("a dodger on the block reads higher stakes (played)", () => {
       const sess = at.sess;
       const block = new Set<string>(sess.live.nominees);
       const rows = () => sess.dodgeLog.length as number;
+      const before = rows(); // ORW-1194: only the dodges this press loop records are judged against the state it presses in (an earlier premiere dodge was staked before its houseguest held power)
       for (const id of (sess.livingIds() as string[]).filter((i) => i !== PLAYER)) {
         const room = sess.presence.get(id);
         if (room) await at.call("moveTo", { room });
         await at.call("confide", { npcId: id });
       }
-      expect(rows(), `seed ${seed}: pressing the house produced dodges`).toBeGreaterThan(0);
-      for (const d of sess.dodgeLog as Array<{ npc: string; stakes?: number; week: number }>) {
+      expect(rows() - before, `seed ${seed}: pressing the house produced dodges`).toBeGreaterThan(0);
+      for (const d of (sess.dodgeLog as Array<{ npc: string; stakes?: number; week: number }>).slice(before)) {
         const held = sess.house.npcs.find((n: { id: string }) => n.id === d.npc).character.hiddenElements?.find((e: { kind: string }) => e.kind !== "trigger");
         const on = block.has(d.npc);
         const power = sess.live.hoh === d.npc || sess.live.vetoHolder === d.npc; // ORW-802: a power holder's dodge carries +0.15

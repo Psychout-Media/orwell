@@ -319,6 +319,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
       if (args["room"] !== undefined && typeof args["room"] !== "string") refuse("room", "a room name (string) when present");
       if (args["private"] !== undefined && typeof args["private"] !== "boolean") refuse("private", "a boolean when present");
+      if (args["invited"] !== undefined && typeof args["invited"] !== "boolean") refuse("invited", "a boolean when present"); // ORW-1174
       return;
     case "exposeSecret":
       // 0093 — out a learned secret. EITHER a real `factId` (a string) OR a `bluff` (a boolean) with a
