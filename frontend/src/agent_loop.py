@@ -8166,8 +8166,20 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
     # sentence. A wrong count is not a fabricated outcome, so a chunk it empties gets NO cutaway line (and
     # no cut-streak step) below: it is simply not shown. The drop is mirrored like any other, because the
     # scene's mirror pair is `screened` -> the final text.
+    # ORW-1182: a competition is told once - a sentence that puts an earlier reply's exit back on its feet to fall again, or repeats a sentence of the last five replies, is dropped (deterministic; engine
+    # truth only). Like the count drop, a chunk it empties gets no cutaway line: it is simply not shown, and the drop is mirrored (screened -> final text).
+    _pre_repeat, emptied_by_repeat = screened, False
+    try:
+        from src import orwell_comp_repeat as _cr
+        screened, _cr_drops = _cr.screen(owner, screened)
+        if _cr_drops:
+            logger.warning("[orwell] comp-repeat cut %d sentence(s) for user=%s (%s)", len(_cr_drops), owner, ",".join(sorted({r for r, _ in _cr_drops})))
+            emptied_by_repeat = bool(_pre_repeat.strip()) and not screened.strip()
+    except Exception as _fs_exc:
+        _failsoft_note("agent_loop:_emit_guarded_scene:comp-repeat", _fs_exc)
+        screened = _pre_repeat
     counted = await _headcount_wall_guard(screened, owner) if screened.strip() else screened
-    emptied_by_count = bool(screened.strip()) and not counted.strip()
+    emptied_by_count = (bool(screened.strip()) and not counted.strip()) or emptied_by_repeat
     guarded = await _pre_emission_outcome_guard(counted, owner) if counted.strip() else counted
     if not guarded.strip() and clean.strip() and not emitted_visible and not cutaway_emitted and not emptied_by_count:
         # T0-3: the pre-emission guard dropped EVERY sentence this chunk offered (each one asserted a
@@ -12476,6 +12488,11 @@ async def _stream_agent_loop_impl(
                         # ORW-510 (live season memory): the visible narration is handed back to the engine, which checks it against its
                         # rolling record of what the narration already used (counted) and folds it in. No model call; fail-soft; one INFO
                         # season line carries the counts. Gated like the other side records (the brief is where the record shows).
+                        try:
+                            from src import orwell_comp_repeat as _cr  # ORW-1182: fold this reply into the competition's told-once ledger (no model call; fail-soft)
+                            await _cr.after_turn(_turn_narration_visible, owner)
+                        except Exception as _cr_e:  # failsoft-ok: comp-repeat-hook (after_turn guards itself; this guards the import)
+                            logger.debug(f"[comp-repeat] skipped: {_cr_e}")
                         try:
                             from src import orwell_narration_use as _nu
                             await _nu.after_turn(_turn_narration_visible, owner)
