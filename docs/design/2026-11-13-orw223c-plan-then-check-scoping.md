@@ -178,3 +178,60 @@ Each ships alone, behind a flag, small PRs.
 5. **A wrong commit.** When the player says a committed move was not what they meant, should the engine offer an undo, or is a normal move enough?
 6. **Search without a sighting.** When no sighting exists for the target, should the route start from the room list in a fixed order, or should the narrator say the player has no lead and stop?
 7. **Prod flip.** Is a one-day prod window per flag, with rollback by flag, the right gate, and does Ryne sign it off?
+
+
+---
+
+# Revision 2026-11-28 (ORW-1014): what prod's first real session showed, and the written definition of engine-driven
+
+Status: BUILT in PR "ORW-1014 prod-1" (flag-gated work unchanged; the fixes below are not behind a flag). Source: the prod journal and ledger of CT 205 for the first real session (Ryne, 2026-11-28 00:35Z to 02:42Z, 26 player messages, act first ON since 2026-11-27 ~01:00Z). Codes, counts and ids only: no player text and no cast text is quoted anywhere in this section.
+
+## 1. Where the 26 messages went (the metric gap)
+
+* 13 messages were the casting interview (00:35Z to 01:04Z). Casting turns are never ledgered by design (`park_pending_unledgered_turn`, ORW-186), so they have no `driver=` line. They were still handed to act first: 13 act-first lines, 2 of them paid model calls (noAction, 666 and 744 ms) on a board that does not exist yet.
+* 13 messages were game turns (01:13Z to 02:42Z). 12 have a `driver=` line. The 13th (01:48Z, the only act-first `acted` turn, a move to the kitchen) died with `UnboundLocalError: _direct_applied` in `_stream_agent_loop_impl`: the own-round tail reads `_direct_applied`, which only the bedtime, nap and pending-act branches bound. The slot had already committed the move, so the turn crashed after its commit and before its ledger row. Its belts (`act-first:moveTo`, `premiere-arrival-pre-release`) landed on the NEXT turn's row. This crash would hit every act-first turn whose only acts were slot commits (a move, a bed claim, a search).
+* So: 12 lines = 13 game turns minus 1 crash. The metric was missing a turn, and the missing turn was the one real tool-driven turn.
+
+Fixes: `_direct_applied` is bound before the round loop (AST test pins it); act first skips the casting interview (`state.started is False`); `record_unledgered_turn` writes a row for any live-game turn that never wrote one (reason failed / closed / no-record; its belts stay on its own row, an `act-first:<tool>` belt counts as the model's tool call); casting messages are counted (`castingTurns`) and logged; the `driver=` line gains `flow=` and `unledgered=`; the ledger totals gain `engineFlowTurns`, `unledgeredTurns`, `castingTurns`.
+
+## 2. The belts that fired
+
+Per game turn (belts that count under `ENGINE_CHANGE_BELT_PREFIXES` in capitals): 99 AUTO-RECORD-SCENE; 100 AUTO-MOVE-NPC, AUTO-RECORD-SCENE; 101 AUTO-RECORD-SCENE; 102 crashed (no row); 103 AUTO-RECORD-SCENE; 104 AUTO-RECORD-SCENE; 105 AUTO-MOVE-NPC, AUTO-RECORD-SCENE; 106 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE; 107 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE; 108 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE; 109 AUTO-RECORD-SCENE; 110 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE, narrator advanceGame (forced, honored); 111 narrator advanceGame only. (Turn numbers are the message index in the session; ids, not text.)
+
+* `auto-record-scene` fired on 11 of 12 rowed turns. It is the belt that makes 10 of the 12 turns `belt`: it is a JSON extraction from the prose after the reply (`_auto_record_scene`), standing in for the narrator's `recordInteraction`. A player cue does not trigger it: it is the narrator's omission, and the player's act is open-set speech.
+* `auto-move-npc` fired on 6 of 12 turns (24 NPC moves): after-the-prose extraction of NPC movement, ADR 0009 ruling 1 (NPC movement is narrated and the engine records it).
+* `premiere-arrival-pre-release` fired on 7 of 12 turns, `premiere-arrival-postreply-deferred` once, `ceremony-unvoiced-reground` on 5, `desync-reground-voiced` on 8, `presence-wall` once, `companion-reseat` twice, `advance-stall-nudge` once. NONE of these is in `ENGINE_CHANGE_BELT_PREFIXES`: they were never counted as belt-driven.
+
+So the premise "mostly premiere-arrival-pre-release" is about the belts that FIRED, not about the belts that made the turn `belt`. The driver label was already right about the premiere.
+
+## 3. The written definition of engine-driven (old and new counts)
+
+Scheduled engine flow = a commit the show's own staged schedule makes with no player act and no narrator omission behind it: the premiere entrance and toast arrivals released by the engine before the reply, or deferred to the next turn's release. Names: prefix `premiere-arrival-` (`SCHEDULED_FLOW_BELT_PREFIXES`). It is reported as its own count (`engineFlowTurns`) and is not a narrator failure. Nothing that stands in for a player act or a narrator call (`auto-*`, `forced-advance*`, `player-move-intent`, the direct belts) is ever scheduled flow; advisory belts (re-grounds, nudges, walls, steers) stay advisory.
+
+Counts on the 12 rowed prod turns (13 with the crashed one):
+
+| rule | tool-driven (narrator or both) | belt-driven (belt or both) | none |
+| --- | --- | --- | --- |
+| old, as logged | 2 of 12 | 11 of 12 (10 belt, 1 both) | 0 |
+| new definition, same rows | 2 of 12 | 11 of 12 | 0 |
+| new definition, crash row restored | 3 of 13 | 12 of 13 | 0 |
+
+The recount does not move the numbers because the scheduled-flow belts were never in the belt count. The only change is the crashed turn, which is a real tool-driven turn counted back in. No belt was relabeled to improve a number.
+
+## 4. Act first: the 13 game-turn decisions
+
+Outcomes: 1 acted (turn 102, correct: a move to a named room), 8 noAction (680 to 1345 ms each), 4 skipped no-cue. Judged against what each message asked, as codes:
+
+* noAction correct, no closed-set act in the message: 105, 106 (no destination named), 109 and 110 (talk about choosing a bed later: a plan, not a claim), 111 (a question).
+* noAction, the message does ask for something the closed set does not have: 99 (the player's own premiere entrance: the engine schedules it, `maybe_release_premiere_arrival`; the player's entrance is the narrator's to voice, section 2 item 4 of the revision above; no tool is missing, the lever is engine-owned), 107 (tour all the bedrooms: no room named, a tour is the ORW-934 route lever without a target, not in the closed set), 108 (a themed room name; it is a move if the name resolves, the lane could not read this season's room names from prod, so it is not counted as a miss).
+* The closed set is therefore not what holds the share down. The two belts that make the turns `belt` (`auto-record-scene`, `auto-move-npc`) are open-set effects (who was in the scene, what it did to relationships, where NPCs went). Section 4 of the revision above excludes them from the act-first set on purpose (ADR 0005: the act-first round has no tool for speech or social play) and ADR 0009 ruling 1 keeps NPC moves narrated. Adding them is not allowed by the design as written; the design's own route is commit-from-plan (part C, slice C3, with the CHECK steps), which needs Kevin and Ryne to approve it. It is the single change that moves the share, and it is listed in section 6.
+
+## 5. The no-call pre-filter
+
+9 of 13 prod calls ended noAction at 0.7 to 1.3 s each. `can_commit_nothing` skips the call when `validate_calls` would reject EVERY call the model could make: a move or a bed claim needs a room the player's own words ground, a search needs an active houseguest's name in the words, a sleep needs a sleep word, and any offered step answer (advance, competition, deal) keeps the call. It mirrors the validator, so it cannot skip a real act: on the 880-row replay corpus no row that expects an act was skipped (0 of 183 newly skipped rows). On the 13 prod game turns it skips 4 to 8 of the 8 noAction calls, depending on where the player stood (the room is not in the journal).
+
+## 6. Gates (Kevin's: 98 percent correct, at most 1 wrong commit per 200, added p95 at most 2 s) and the share
+
+Dev replay on CT 204 with the DeepSeek API, 880 rows (the 855-row labelled corpus plus the 25 prod messages from 00:35Z on, as codes): correct 865 of 880 (98.3 percent), wrong commits 0 (0.00 per 200), model calls 616 of 880 (264 skipped, 30 percent, against 81 skipped, 9 percent, before the filter), added latency over all turns p50 693 ms, p95 1154 ms (the call alone p50 805, p95 1209 ms; the endpoint was slower than on 11-26, the earlier run had p95 939 ms). The 15 misses are the same classes as before (a find-someone-in-a-room move, a typo, a hedge); none is a wrong commit.
+
+Projected tool-driven share on the prod session: before 2 of 12 (17 percent) as logged; with the crash fixed 3 of 13 (23 percent). The pre-filter changes cost and latency, not the share. The remaining 10 belt turns each carry `auto-record-scene`; only commit-from-plan for scene records and NPC moves (C3, needs approval) can take the share toward the ceiling of 12 of 13, and that figure has no corpus yet: the scene-record labels do not exist.

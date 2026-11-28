@@ -436,8 +436,13 @@ def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
     if o["advance"] or o["comp"] or o["deal"]:
         return False
     t = strip_quotes(text)
-    if (o["moveTo"] or o["claimBed"]) and any(grounded_ctx(str(r).lower(), text, ctx) for r in rooms):
-        return False
+    for r in rooms:
+        r = str(r).lower()
+        if (o["moveTo"] or o["claimBed"]) and grounded(r, text, ctx.get("room_names")):
+            return False
+        # 'in here' / 'this room' names the room the player is in: a move there is dropped as already-there, so only a bed claim in a bedroom they stand in can still commit
+        if o["claimBed"] and r in BEDROOMS and r == ctx.get("here") and _HERE_REF.search(t):
+            return False
     if o["search"]:
         low = t.lower()
         for nm in ctx.get("people") or []:
