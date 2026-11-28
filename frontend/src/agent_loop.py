@@ -6353,7 +6353,27 @@ def _alliance_call_landed(result) -> bool:
     return isinstance(view, dict) and bool(view.get("id")) and not view.get("error")
 
 
-async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, refused=None) -> bool:
+_INVITE_CONTEXT_RE = re.compile(r"\b(?:group|in it|in on it|join (?:us|me)|want you in|like you in|you in)\b", re.I)
+
+
+def _prior_assistant_text(messages) -> str:
+    """ORW-1178: the narrator's reply BEFORE the player's latest message: the scene in which a houseguest invited the player (the player's bare yes names nothing)."""
+    try:
+        seen_user = False
+        for m in reversed(messages or []):
+            if not isinstance(m, dict):
+                continue
+            if not seen_user:
+                seen_user = m.get("role") == "user"
+                continue
+            if m.get("role") == "assistant" and isinstance(m.get("content"), str):
+                return m["content"]
+    except Exception:  # failsoft-ok: no context only means the old gate
+        pass
+    return ""
+
+
+async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, refused=None, prior=None) -> bool:
     """Record an alliance the player agreed to aloud but the model never joined/formed (ORW-780). True only when the
     engine APPLIED a membership (success-gated telemetry); a refusal, an ambiguous scene or any hiccup is a no-op.
     `applied_out` receives one entry per applied membership. `refused` (ORW-793) is what the ENGINE already refused the model this turn
@@ -6369,7 +6389,9 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
         state = await _oe.get_game_state(user=owner)
         raw_pitches = (state or {}).get("alliancePitches") if isinstance(state, dict) else None
         pitches = {p.get("id"): p for p in (raw_pitches or []) if isinstance(p, dict) and p.get("id") and p.get("id") not in refused_join}
-        if not pitches and not _ALLIANCE_SIGNAL_RE.search(last_user or ""):
+        # ORW-1178: a bare yes ("Im in.") names no alliance; the invitation sits in the scene before it. That scene counts as the signal.
+        invited = bool(prior) and bool(_ALLIANCE_SIGNAL_RE.search(prior) or _INVITE_CONTEXT_RE.search(prior)) and bool(_OFFER_ANSWER_RE.search(last_user or ""))
+        if not pitches and not invited and not _ALLIANCE_SIGNAL_RE.search(last_user or ""):
             return False  # no open pitch to accept and the player did not speak of an alliance: nothing to extract
         pitch_lines = "\n".join(
             f'{pid} = "{p.get("name")}" (members: {", ".join(str(m.get("name")) for m in (p.get("members") or []) if isinstance(m, dict))})'
@@ -6382,13 +6404,16 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
                 "agreed group of houseguests, more than a one-to-one deal). Reply IMMEDIATELY with ONLY a JSON object, "
                 "no prose, no code fence:\n"
                 '{"join":"<one id from OPEN PITCHES the player clearly accepted, or null>",'
+                '"invited_by":"<the ROSTER id of the houseguest who asked the player into their group in THE SCENE BEFORE, when the player said yes to that invitation, or null>",'
                 '"form":{"name":"<the group name as spoken, or empty>","members":["<houseguest ids from the ROSTER>"]} or null}\n'
                 "join: ONLY when the player clearly said yes to THAT pitched alliance. form: ONLY when the player and "
                 "at least two houseguests explicitly agreed to be an alliance together (list the houseguests, never "
                 "the player). A maybe, a question, a refusal, a one-sided pitch, or a plain two-person deal => both null. "
+                "invited_by: ONLY when the player plainly said yes to a houseguest's invitation into a group; the houseguest who spoke the invitation, never the player. "
                 "NEVER invent an id not in the lists."},
             {"role": "user", "content":
                 f"OPEN PITCHES (id = name):\n{pitch_lines}\n\nROSTER (id = name):\n{roster_lines}\n\n"
+                f"THE SCENE BEFORE:\n{(prior or '')[:1500]}\n\n"
                 f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\nWHAT HAPPENED:\n{(narration or '')[:2500]}\n\nJSON:"},
         ]
         _note_belt_attempt("auto-alliance")  # ORW-1042: the gate passed; the extraction call is next
@@ -6412,6 +6437,17 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
                 _any = True
             else:
                 logger.info(f"[orwell] auto-join alliance {join_id}: the engine declined - nothing recorded user={owner}")
+        inviter_id = obj.get("invited_by")
+        if not _any and isinstance(inviter_id, str) and inviter_id in roster and inviter_id not in refused_join:
+            # ORW-1178: the yes answered a houseguest's own invitation. The engine reads the alliance that houseguest is really in (or founds one with them); the narrated roster never decides it.
+            res = await _backfill_with_cas(owner, _oe.join_alliance, "", user=owner, defer_fold=True, inviter=inviter_id)
+            if isinstance(res, dict) and res.get("id") and not res.get("error"):
+                logger.info(f"[orwell] auto-joined the inviter's alliance user={owner}")
+                if isinstance(applied_out, list):
+                    applied_out.append(res.get("id"))
+                _any = True
+            else:
+                logger.info(f"[orwell] auto-join inviter alliance: the engine declined - nothing recorded user={owner}")
         form = obj.get("form")
         if not _any and isinstance(form, dict):
             group_ids = [m for m in (form.get("members") or []) if isinstance(m, str) and m in roster]
@@ -12628,7 +12664,8 @@ async def _stream_agent_loop_impl(
                             _applied_alliances: list = []
                             if await _auto_alliance(_turn_narration, _last_user_for_confide,
                                                     _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                    applied_out=_applied_alliances, refused=_turn_alliance_refused):
+                                                    applied_out=_applied_alliances, refused=_turn_alliance_refused,
+                                                    prior=_prior_assistant_text(messages)):
                                 for _ in (_applied_alliances or [None]):
                                     _note_belt(owner, "auto-alliance")
                         # ORW-750: a voiced promise the model never recorded. Only a promise the ledger actually GAINED counts toward telemetry.
