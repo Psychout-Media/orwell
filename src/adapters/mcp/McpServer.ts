@@ -893,8 +893,10 @@ export class McpServer {
         return this.deps.session.recordEpisodeTitles(args as unknown as RecordEpisodeTitlesReq);
       case "dayLedger":
         return this.deps.session.dayLedger();
-      case "dailyRecap":
-        return this.deps.session.dailyRecap();
+      case "dailyRecap": {
+        const rd = (args as { rebuildDay?: unknown } | undefined)?.rebuildDay; // ORW-1165: the ops re-issue reads a closed day rebuilt with the current digest (pure read)
+        return this.deps.session.dailyRecap(typeof rd === "number" && Number.isInteger(rd) && rd >= 1 ? { rebuildDay: rd } : undefined);
+      }
       case "hallOfFame":
         return this.deps.session.hallOfFame();
       case "seasonRetrospective":

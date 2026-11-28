@@ -20,12 +20,13 @@ describe("ORW-382 - every bedtime has a day in review, the premiere night includ
     const v = s.turnIn();
     expect(v.held).toBeUndefined();
     expect(v.dailyRecap?.day).toBe(1);
-    expect(v.dailyRecap?.highlights).toEqual([]); // no ceremony or deal on the premiere
-    expect((v.dailyRecap?.yourDay ?? []).length, "the review has the player's own witnessed scenes").toBeGreaterThan(0);
-    expect(v.dailyRecap!.yourDay!.length).toBeLessThanOrEqual(5);
-    const seen = (s.record.events() as { hidden: boolean; witnessSet: string[]; content: string }[]).filter((e) => !e.hidden && e.witnessSet.includes(s.getGameState().player.id));
-    for (const line of v.dailyRecap!.yourDay!) expect(seen.some((e) => e.content.trim().startsWith(line.slice(0, 40))), `"${line}" comes from a witnessed, non-hidden event`).toBe(true);
-    for (const line of v.dailyRecap!.yourDay!) expect(line, "no provenance bookkeeping reaches the review").not.toMatch(/^surfaced to player via|overheard:|told-by:/);
+    // ORW-1165: the premiere's arrivals, toast and talks are in the digest (before, a premiere night had no highlights at all)
+    expect(v.dailyRecap!.highlights.length, "the review has the player's own witnessed moments").toBeGreaterThan(0);
+    const evs = s.record.events() as { id: string; hidden: boolean; witnessSet: string[] }[];
+    const pid = s.getGameState().player.id;
+    for (const d of v.dailyRecap!.digest!) for (const id of d.eventCursor) expect(evs.some((e) => e.id === id && !e.hidden && e.witnessSet.includes(pid)), `"${d.text}" is built from a witnessed, non-hidden event`).toBe(true);
+    for (const line of [...v.dailyRecap!.highlights, ...(v.dailyRecap!.yourDay ?? [])]) expect(line, "no provenance bookkeeping reaches the review").not.toMatch(/^surfaced to player via|overheard:|told-by:/);
+    expect((v.dailyRecap!.yourDay ?? []).length).toBeLessThanOrEqual(5);
   });
 
   it("review of #2664/#2672: a witnessed scene with the same words as a highlight stays; gossip and surfacing bookkeeping never ride", () => {

@@ -2556,6 +2556,23 @@ def setup_admin_health_routes() -> APIRouter:
             flags = {}
         return {f: bool(flags.get(f)) for f in orwell_engine.BEHAVIORAL_FLAG_FIELDS}
 
+    @router.post("/ops/reissue-day-recap")
+    async def admin_reissue_day_recap(request: Request):
+        """ORW-1165: re-issue one closed day's recap for one user as its own "Day N in review" message, rebuilt by the engine with the current digest builder. Body: `{user, day, apply?}`. Dry run unless
+        `apply` is true; a day already issued as a card is never issued twice. Logged on every call. Vault-free (the engine's witnessed and surfaced lines only)."""
+        require_admin(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        user = body.get("user") if isinstance(body, dict) else None
+        day = body.get("day") if isinstance(body, dict) else None
+        if not isinstance(user, str) or not user.strip() or not isinstance(day, int) or isinstance(day, bool) or day < 1:
+            return JSONResponse({"ok": False, "reason": "body needs user (string) and day (integer >= 1)"}, status_code=400)
+        from src import orwell_day_recap
+        report = await orwell_day_recap.reissue(user.strip(), day, apply=bool(body.get("apply")))
+        return {"ok": True, **report}
+
     @router.post("/ops/behavioral-flags")
     async def admin_behavioral_flags_set(request: Request):
         """B2 (gap-audit G6/#1840): the admin dial's WRITE side — flip one or more "living
