@@ -404,6 +404,17 @@ def pending_fold_count(owner: Optional[str], session_id: Optional[str]) -> int:
     return len(_PENDING.get(_key(owner, session_id), ()))
 
 
+def pending_fold_with_ids(owner: Optional[str], session_id: Optional[str]) -> list:
+    """ORW-1159: the houseguest ids named by the scene folds still staged for this (owner, session), in order, deduplicated. A read only (nothing is popped): the next player message announces
+    them to the engine so the houseguests in the conversation stay in the player's room through the tick that message steps."""
+    out: list = []
+    for entry in _PENDING.get(_key(owner, session_id), ()):
+        for i in (entry.get("with_ids") or []):
+            if isinstance(i, str) and i and i != "player" and i not in out:
+                out.append(i)
+    return out
+
+
 # ORW-26: the turn's scene belt (`_auto_record_scene`) concluded there is NO recordable scene among the houseguests actually present (every
 # proposed participant was off-scene per the engine's whereabouts). The E22 fallback must not run the SAME extraction a second time (run 0348:
 # 14 turns paid two identical utility calls that dropped the same ids twice). One flag per (owner, session), set by the belt, consumed (popped)

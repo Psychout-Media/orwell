@@ -24,7 +24,8 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
 
 describe("vote talk in a played season", () => {
   it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
-    // ORW-1167: earshot moved the played seasons; seed 5 no longer reaches it (a per-seed probe over 1-12: 1, 3, 6, 9-12 do), so 1 and 3 lead.
+    // ORW-1159 on the ORW-995 cast: probe found 15 and 30 (seeds 1-13, 15, 17-22, 24, 27, 30, 36, 81, 135 probed one per process; 27, 17, 81, 135 do not reach it).
+    // ORW-1159 + ORW-1167: the tether and earshot both moved the played seasons; seed 5 no longer reaches it first, so 1 and 3 lead.
     const { at, talk } = await firstTalk([1, 3, 5], (_s, t) => t.told.some((c) => c.listener === PLAYER));
     const toPlayer = talk.told.filter((c) => c.listener === PLAYER);
     for (const c of toPlayer) {
@@ -60,8 +61,8 @@ describe("vote talk in a played season", () => {
     const caughtCredit = (s: Stop, t: Talk) => t.tally.keepVotes === 0 && t.told.some((c) => c.listener !== PLAYER && beliefOf(s, c.listener, c.id)?.refuted && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
     // 36 since ORW-779 moved the played seasons (of seeds 1-36 in the sandboxes wf-<seed>, only 36 got there); the earlier hints stay as the fallback.
     // ORW-1091: 17 first (the both-sides fold meter moved the played seasons; a wide probe over 1-60 found 17 first); the earlier hints stay as the fallback.
-    // ORW-1167: earshot (a confidence is heard only within earshot) moved the played seasons; a per-seed probe over 1-30 found only 4, 1 and 7 reach it, so they lead.
-    const { at, talk } = await firstTalk([27, 17, 4, 1, 7, 13, 36, 3, 20, 24], caughtCredit); // ORW-995: 27 first (one seed per process on a runner, seeds 1-40 at this head: 1 of 40 reaches it on this branch (27), 1 of 40 on main (17))
+    // ORW-1159 + ORW-1167 (tether and earshot): on the merged tree only 81 of 1, 4, 7, 81, 135 reaches it (81 also reached it with the tether alone), so it leads.
+    const { at, talk } = await firstTalk([15, 30, 27, 17, 81, 135, 4, 13, 36, 3, 20, 1, 7, 24], caughtCredit);
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
     for (const c of talk.told.filter((x) => x.listener !== PLAYER && x.object === talk.tally.evictee && talk.tally.voters.includes(x.subject))) {
       const b = beliefOf(at, c.listener, c.id);

@@ -13,6 +13,7 @@ import { answerPending } from "../../features/support/answerPending";
  * others, a houseguest tells the room what they believe about the player (the narrator's `recordInteraction` with `heardAboutMe`). A rumor names WHO WAS BETRAYED only when the
  * betrayal is on the public record; a secret-ballot break, and a rumor with no betrayal behind it, name no victim. The public-break case was not reached in play (the todo). Roles only.
  */
+// ORW-1159: the conversation tether moved the played trajectories again: seed 4 reaches the secret-ballot precondition first now.
 const HINT = 3; // ORW-880: a seed tried early; each test scans from here (wfScan). ORW-999: the bed rush now resolves on player messages, which moved the played trajectories: seed 8 reaches the precondition first, then 5 and 3.
 type Deal = { status: string; brokenBy?: string; parties: string[] };
 const dealsOf = (s: Stop): Deal[] => s.sess.deals.forParty(PLAYER) as Deal[];
@@ -63,7 +64,8 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
       const victim = betrayed(s).find((x) => room(s).includes(x))!;
       const { o: bystander } = await tellTheRoom(s, victim);
       return heardTold(s, bystander) ? { s, victim, bystander } : undefined;
-    }, wfScan([15, 16, 18], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor (ORW-995 census cast)"));
+    }, wfScan([4, 13], // ORW-1159 on the ORW-995 cast: probe found 4, 13 (seeds 1-20; main's 15, 16, 18 do not reach it with the tether)
+       "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
     const at = found.at.s, v = found.at.victim, o = found.at.bystander;
     const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
     expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);

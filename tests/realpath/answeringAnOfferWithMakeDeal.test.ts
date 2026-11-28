@@ -34,13 +34,18 @@ describe("a makeDeal to the houseguest who made the offer accepts it (played)", 
   }, 120_000); // a whole played season: past the 30 s default on a CI runner
 
   it("a deal with a houseguest who made no offer is still decided by their own consent (unchanged)", () => {
-    // ORW-995: hint 4, 10 (was 8, 12): the census-hometown cast moves the seeded draws; seed 8 has an offer standing but nobody refuses (0 of 14); seed 4 refuses 3 of 14, seed 10 refuses 2 of 14
-    const f = firstSeedWhereSync((seed, sandbox) => offerStanding(seed, sandbox), { from: 1, to: 12, hint: [4, 10], sandbox: (s) => `ao930b-${s}`, what: "a houseguest's offer standing with the player (ORW-995 census cast)" });
-    const g = f.at;
-    const o = (g.s.getGameState() as { openDealOffer: { from: { id: string } } }).openDealOffer;
-    const others = g.s.livingIds().filter((id) => id !== PLAYER && id !== o.from.id);
-    const answers = others.map((id) => g.s.makeDeal({ with: id, kind: "safety", terms: "x" }));
+    // ORW-1159 on the ORW-995 cast: probe found 10, 3, 12, 2, 7 (fastest first; main's 4 and 8 no longer reach a refusal on the merged tree).
+    // The precondition is a season where the offer stands AND at least one other houseguest, asked on their own read, refuses (ORW-1159: the conversation tether moved which seasons get there; the asks are made here
+    // in the scan, on the same game, and the test asserts on what they answered).
+    const f = firstSeedWhereSync((seed, sandbox) => {
+      const g = offerStanding(seed, sandbox);
+      const o = (g.s.getGameState() as { openDealOffer: { from: { id: string } } }).openDealOffer;
+      const others = g.s.livingIds().filter((id) => id !== PLAYER && id !== o.from.id);
+      const answers = others.map((id) => g.s.makeDeal({ with: id, kind: "safety", terms: "x" }));
+      return answers.some((a) => isRefusal(a)) ? { g, answers } : undefined;
+    }, { from: 1, to: 12, hint: [10, 3, 12, 2, 7], sandbox: (s) => `ao930b-${s}`, what: "a houseguest's offer standing with the player and another houseguest who refuses a deal on their own read" });
+    const { g, answers } = f.at;
     expect(answers.some((a) => isRefusal(a)), "someone else still refuses on their own read").toBe(true);
     expect((g.s.getGameState() as { openDealOffer?: unknown }).openDealOffer, "their offer still stands").toBeDefined();
-  });
+  }, 300_000); // up to a few played seasons in the scan
 });

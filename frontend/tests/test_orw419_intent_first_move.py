@@ -57,7 +57,7 @@ def test_the_call_runs_before_the_narrator_prompt_is_built():
     i = src.index("resolve_player_move_before_narrator(message")
     j = src.index("await apply_game_framing(", i)
     assert i < j
-    assert src.index("await note_player_message(client_msg_id, user)") < i
+    assert src.index("await note_player_message(client_msg_id, user") < i  # ORW-1159: the call also passes session_id; the order is the rule
 
 
 def test_stub_narrator_prompt_shows_the_new_room_and_playerMove():

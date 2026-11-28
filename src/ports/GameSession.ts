@@ -2384,7 +2384,7 @@ export interface WhereaboutsView {
    * ORW-249 - who walked into / out of the player's room SINCE THE PLAYER LAST SENT (the engine re-seats the house after the send; the narrator was handed the send-time roster). Names only, Vault-free;
    * present only when someone changed - so the story can voice a short arrival/departure beat and story and widget move together. Absent when nothing changed or the player changed rooms.
    */
-  sinceSend?: { arrived: string[]; departed: string[] };
+  sinceSend?: { arrived: string[]; departed: string[]; /** ORW-1160: each houseguest who left the player's room since the last send, with the room they went to (only when it is next door) and the engine's reason when it has one. */ left?: Array<{ id: string; name: string; to?: string; toName?: string; why?: string }> };
   /** ORW-1169: the player is in a private talk with this houseguest (both are busy until it ends: no move, no plan, nobody walks in). Absent otherwise. */
   privateTalk?: { with: NamedRef };
   /**
@@ -3555,7 +3555,7 @@ export interface GameSession {
    * Clock-per-message (2026-11-05): the front-end announces ONE player message ({messageId}, its stable id); the announcement steps the in-game clock one message-step (~5 minutes), idempotent per id
    * (`accepted: false` for a repeat). From the first announcement on, commits bill the clock nothing - the clock is paid per PLAYER MESSAGE, not per engine mutation. FE clock infra, not a model lever.
    */
-  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number; reason?: string };
+  noteMessage(req: { messageId: string; withIds?: readonly string[] }): { accepted: boolean; beatSeq: number; reason?: string };
   /** Resolve the current pending decision and continue the loop (validated; 0011). `req` may carry the
    *  optional 0065 `expectedBeatSeq` / `idempotencyKey` (absent ⇒ byte-identical to today). */
   submitDecision(req: SubmitDecisionReq): AdvanceView;

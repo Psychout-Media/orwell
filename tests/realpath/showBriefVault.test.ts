@@ -18,7 +18,8 @@ const hiddenOf = (s: Stop): string[] => {
 
 describe("the brief is Vault-free in a played season", () => {
   it("no hidden premise, trigger, secret, goal or weakness the season holds ever reaches the brief", async () => {
-    const at = await firstStop((s) => (s.sess.live?.week ?? 1) >= 2 && hiddenOf(s).length > 0, wfScan(1)) // ORW-995: hint 1 (was 7); the census-hometown cast moves the seeded draws and seed 7 (like 5) builds no brief; seeds 1, 2, 3, 4, 6, 8-12 do;
+    // ORW-1159: the stop needs the player in the house (no whereabouts, no brief); the tether moved seed 7 to a week-1 player eviction, so the hint is now 1 (Ryne OK'd 11-28). ORW-995: hint 1 (was 7); the census-hometown cast moves the seeded draws and seed 7 (like 5) builds no brief.
+    const at = await firstStop((s) => (s.sess.live?.week ?? 1) >= 2 && s.sess.whereabouts() != null && hiddenOf(s).length > 0, wfScan(1));
     const hidden = hiddenOf(at);
     expect(hidden.length, "non-vacuous: the season holds hidden material").toBeGreaterThan(10);
     const everyone = (at.sess.livingIds() as string[]).filter((id) => id !== "player");

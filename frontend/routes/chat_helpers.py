@@ -1732,6 +1732,66 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
     )
 
 
+# ORW-1160 (Ryne 2026-11-28: "I only knew she walked off because of the where-you-are tool ... there was no transition out"): the engine hands the narrator every departure from the player's room since the last reply
+# (`whereabouts.sinceSend.left`: who, where to when it is next door, the engine's reason). A reply that does not voice it leaves the player's picture and the board disagreeing, and next turn the departure is no longer
+# in the state. So each departure handed over is remembered here and the reply is checked: a houseguest named together with an exit cue (or the room they went to) in one sentence counts as voiced; an unvoiced one is
+# re-grounded into the next turn, the same way a committed ceremony beat the reply skipped is (`note_ceremony_beat_for_voicing`).
+_EXITS_UNVOICED: dict = {}  # runway key -> [{"name": full name, "to": room words or "", "why": reason or ""}]
+_EXIT_CUE_RE = re.compile(
+    r"\b(?:left|leaves|leaving|leave|walk(?:s|ed|ing)?\s+(?:out|off|away)|step(?:s|ped|ping)?\s+(?:out|off|away)|head(?:s|ed|ing)?\s+(?:out|off|to|for|into|toward|towards)|slip(?:s|ped|ping)?\s+(?:out|off|away)"
+    r"|gone|exit(?:s|ed|ing)?|excus(?:e|es|ed|ing)\s+(?:her|him|them)sel(?:f|ves)|disappear(?:s|ed|ing)?|retreat(?:s|ed|ing)?|wander(?:s|ed|ing)?\s+(?:off|out|away)|made\s+(?:her|his|their)\s+way|door\s+(?:clicks|closes|shuts|swings)"
+    r"|turn(?:s|ed|ing)?\s+in|go(?:es)?\s+to\s+bed|called\s+(?:in|to)|summoned|pulled\s+(?:away|out))\b", re.IGNORECASE)
+
+
+def note_exits_for_voicing(user, whereabouts) -> None:
+    """ORW-1160: remember the departures the engine handed the narrator this turn (`whereabouts.sinceSend.left`) so the reply can be checked for voicing them. A turn with none clears the slot. Never raises."""
+    try:
+        k = _desync_key(user)
+        since = whereabouts.get("sinceSend") if isinstance(whereabouts, dict) and isinstance(whereabouts.get("sinceSend"), dict) else {}
+        left = [l for l in (since.get("left") or []) if isinstance(l, dict) and isinstance(l.get("name"), str) and l["name"].strip()]
+        if left:
+            _EXITS_UNVOICED[k] = [{"name": l["name"].strip(), "to": str(l.get("toName") or ""), "why": str(l.get("why") or "")} for l in left]
+        else:
+            _EXITS_UNVOICED.pop(k, None)
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_exits_for_voicing:1", _fs_exc)
+
+
+def _exit_unvoiced(narration: str, ex: dict) -> bool:
+    """ORW-1160: true when no sentence of the reply names this houseguest together with an exit cue or the room they went to. A reply that never names them at all is unvoiced too."""
+    name = str(ex.get("name") or "")
+    parts = [name.lower()] + [p for p in re.split(r"\s+", name.lower()) if len(p) >= 3]
+    dest = re.sub(r"^the\s+", "", str(ex.get("to") or "").lower()).strip()
+    sents = [x for x in re.split(r"(?<=[.!?])\s+|\n+", narration or "") if x.strip()]
+    for i, sent in enumerate(sents):
+        if not any(p and p in sent.lower() for p in parts):
+            continue
+        near = sent + " " + (sents[i + 1] if i + 1 < len(sents) else "")  # the exit is often the next sentence, in a pronoun ("Alpha says she needs air. She leaves.")
+        if _EXIT_CUE_RE.search(near) or (dest and dest in near.lower()):
+            return False
+    return True
+
+
+def check_exits_voiced(user, narration: str) -> None:
+    """ORW-1160: post-turn. Each handed-over departure the reply did not voice is re-grounded into the next turn (one line, the exact houseguest, where to and why when the engine said). Never rewrites the reply; never raises."""
+    try:
+        k = _desync_key(user)
+        exits = _EXITS_UNVOICED.pop(k, None)
+        if not exits or not narration:
+            return
+        missed = [e for e in exits if _exit_unvoiced(narration, e)]
+        if not missed:
+            return
+        who = _walk_in_names([e["name"] for e in missed])
+        detail = "; ".join(e["name"] + (" went to " + e["to"] if e["to"] else "") + (" (" + e["why"] + ")" if e["why"] else "") for e in missed if e["to"] or e["why"])
+        _reground_enqueue(k, "RE-GROUND ON AN EXIT: the engine moved " + who + " out of the player's room and your last turn never showed it, so the player only found out from the board." + (" " + detail + "." if detail else "")
+                          + " They are not in this room now. Open your next turn with the leaving in a line or two (the walk out, the door, a word if it fits), give no reason the engine did not give, and write nobody as speaking to them or hearing them from here.")
+        _note_belt(user, "exit-unvoiced-reground")
+        logger.warning("[orwell] departure from the player's room not voiced in the narration - re-grounding next turn for user=%s", user)
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:check_exits_voiced:1", _fs_exc)
+
+
 def _walk_in_names(names):
     """ORW-473: 'A and B' for a pair, 'A, B and C' for a group (a pair reads exactly as before)."""
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
@@ -4533,6 +4593,7 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
                               "playing it for real (who is named, the room's reaction), using ONLY the names given here; do not invent anyone else.")
             _note_belt(user, "ceremony-unvoiced-reground")
             logger.warning("[orwell] committed ceremony beat %r was not voiced in the narration - re-grounding next turn for user=%s", _cnote["label"], user)
+        check_exits_voiced(user, narration)  # ORW-1160: a departure the engine handed over that the reply did not voice
         after = await _capture_beat_signature(user)
         before = _LAST_BEAT_SIG.get(_dkey)
         if not before or not after:
@@ -10288,7 +10349,7 @@ def consume_decision_beat_cue(message, user) -> bool:
     return False
 
 
-async def note_player_message(client_msg_id, user) -> None:
+async def note_player_message(client_msg_id, user, session_id=None) -> None:
     """Tell the engine a player message arrived (``noteMessage``): one in-game message-step per
     message id. Best-effort — no engine / no game / any failure ⇒ nothing (the engine keeps its
     legacy per-commit billing until it first hears a message)."""
@@ -10296,7 +10357,13 @@ async def note_player_message(client_msg_id, user) -> None:
         import uuid
         from src import orwell_engine
         _mid = client_msg_id or f"srv-{uuid.uuid4().hex}"
-        res = await orwell_engine.note_message(_mid, user=user)
+        _tether_ids = []
+        try:  # ORW-1159: the houseguests of a scene fold still staged from the last reply are in the conversation: tell the engine BEFORE it steps this message's tick
+            from src import fold_ledger as _fl_tether
+            _tether_ids = _fl_tether.pending_fold_with_ids(user, session_id) if session_id else []
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:note_player_message:tether", _fs_exc)
+        res = await orwell_engine.note_message(_mid, user=user, **({"with_ids": _tether_ids} if _tether_ids else {}))
         # noteMessage persists (bumps beatSeq): track the new token so the next progression call is not stale-409.
         _r = res if isinstance(res, dict) else {}
         logger.info("noteMessage id=%s accepted=%s beatSeq=%s", _mid, _r.get("accepted"), _r.get("beatSeq"))  # ids only, no content
@@ -10589,6 +10656,8 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _srch
         except Exception as e:
             logger.warning("[orwell] player-search framing skipped for user=%s: %s", _gkey, e)
+        # ORW-1160: remember each departure from the player's room the engine hands the narrator this turn, so the reply can be checked for voicing it. Best-effort / fail-open.
+        note_exits_for_voicing(user, game_state.get("whereabouts"))
         # ORW-473: the player walked in on a private talk this turn - each houseguest's reaction comes from their own sheet (engine-chosen); the narrator voices it. Best-effort / fail-open.
         try:
             _walk = _walked_in_directive(game_state.get("walkedIn"))
@@ -11907,7 +11976,7 @@ async def build_chat_context(
     _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user)
                                            or consume_ceremony_result_beat_cue(message, user) or consume_decision_beat_cue(message, user))  # ORW-919: + veto ceremony, decision  # ORW-771: a vote-beat turn is not a player message
     if not incognito and not _vote_beat_turn:
-        await note_player_message(client_msg_id, user)
+        await note_player_message(client_msg_id, user, session_id)
         # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
         # prompt is built below, so the briefing already shows the new room + `playerMove`. Fail-soft; unsure parses move nothing.
         from src.settings import game_build_enabled as _gbe_pm
