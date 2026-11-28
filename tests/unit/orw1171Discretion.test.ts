@@ -43,7 +43,8 @@ describe("ORW-1171: the pure discretion rule", () => {
   });
   it("a leakier or hotter houseguest slips more, and it stays rare and bounded", () => {
     expect(slipOdds({ leakiness: 0.9, volatility: 0.9 })).toBeGreaterThan(slipOdds({ leakiness: 0.1, volatility: 0.1 }));
-    expect(slipOdds({ leakiness: 5, volatility: 5 })).toBeLessThanOrEqual(0.2);
+    expect(slipOdds({ leakiness: 5, volatility: 5 })).toBeLessThanOrEqual(0.1); // Ryne 2026-11-28: 1-10%
+    expect(slipOdds({ leakiness: 0, volatility: 0 })).toBeCloseTo(0.01, 5);
     expect(slipOdds({ leakiness: 0.1, volatility: 0.1 })).toBeLessThan(0.05);
   });
   it("marks who in earshot is not in on a tie", () => {

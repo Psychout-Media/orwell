@@ -45,15 +45,17 @@ export function tieScenes(earshot: readonly EntityId[], player: EntityId, ties: 
   return out;
 }
 
+// Ryne's ruling, 2026-11-28 ("Lower: 1-10%"): a slip is rare enough that a leaked deal feels like a real event. Odds run from 1% (the guarded) to at most 10% (the hottest, leakiest),
+// per speaker, per tie, per in-game day; no per-houseguest floor (Valerie's style and volatility place her, like everyone else).
 export const DISCRETION = {
   /** Base chance a loose-lipped-by-nothing houseguest lets a private thing out in front of people not in on it, once a day per (speaker, tie). Rare on purpose. */
   slipBase: 0.01,
   /** Added per point of leakiness (the style table, 0..~0.9). */
-  perLeak: 0.1,
+  perLeak: 0.05,
   /** Added per point of volatility (0..1): a houseguest who runs hot or messy. */
-  perVolatility: 0.06,
+  perVolatility: 0.03,
   /** Each person beyond the first who is not in on it raises the stakes of a slip, not its odds; the cap bounds the whole. */
-  maxSlip: 0.2,
+  maxSlip: 0.1,
 } as const;
 
 export interface DiscretionTraits {
