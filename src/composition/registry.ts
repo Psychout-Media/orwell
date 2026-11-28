@@ -160,6 +160,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   session.setNpcKnowledgeProviders({
     known: (id) => engine.knowledge.knownTo(id),
     suspicions: (id) => engine.knowledge.suspicionsOf(id),
+    learn: (id, fact) => { engine.knowledge.seedBelief(id, fact, "overheard"); }, // ORW-1171: a slipped private tie reaches the people in earshot who were not in on it
   });
   // The season record (0048/B56): the recap reads the PUBLIC record; the retrospective reads the
   // hidden side THROUGH the session's finished-state gate (the one sanctioned Vault seam).

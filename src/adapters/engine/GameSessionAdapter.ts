@@ -127,6 +127,7 @@ import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView 
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { HANGOUT, runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
 import { CUNNING, LEAKY, SEEK, SPIN } from "../../engine/copresenceSpread";
+import { tieScenes, discretionCall, type PrivateTie, type DiscretionView } from "../../engine/discretion";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { offerStandsAfterRefusedCounter } from "../../engine/dealCounterStands";
@@ -4256,11 +4257,14 @@ export class GameSessionAdapter implements GameSession {
     // lineage across holders and skip the Diary-Room class. Optional ⇒ back-compatible with any caller.
     known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
+    /** ORW-1171: lodge a belief with a houseguest who overheard it (a slipped private tie). Absent in headless wiring: nothing is lodged. */
+    learn?: (id: EntityId, fact: { content: string; factId: string; confidence?: number; hops?: number; distortion?: number }) => void;
   };
 
   setNpcKnowledgeProviders(p: {
     known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
+    learn?: (id: EntityId, fact: { content: string; factId: string; confidence?: number; hops?: number; distortion?: number }) => void;
   }): void {
     this.npcKnowledge = p;
   }
@@ -23326,6 +23330,78 @@ export class GameSessionAdapter implements GameSession {
       );
   }
 
+  /**
+   * ORW-1171: the ENGINE's discretion call for the player's scene. A private alliance the player knows of, or a standing deal the player is in, with a houseguest in the player's room: who in earshot is in on it and who is not,
+   * and what its holders do about it (raise it only when everyone in earshot is in on it; else defer; rarely and by character, SLIP). A slip is recorded (`live.discretionSlips`) and the people in earshot who were not in on it
+   * learn it for real (an alliance becomes known to them; a deal is lodged as a belief). One roll per (speaker, tie, in-game day) on its own keyed stream, so a rebuilt prompt in the same beat gives the same call.
+   * Played games only. Separate from the witness-set and fold-participant code: "earshot" here is the narrator's room.
+   */
+  private discretionForPrompt(): DiscretionView | undefined {
+    const s = this.live;
+    const wa = this.whereabouts();
+    if (!s || s.playedGame !== true || !this.house || !wa) return undefined;
+    const me = this.house.player.id;
+    const earshot = wa.present.map((p) => p.id).filter((id) => id !== me);
+    if (!earshot.length) return undefined;
+    const day = s.dayNumber ?? s.week;
+    const slips = s.discretionSlips ?? [];
+    const learned = (tieId: string): EntityId[] => slips.filter((x) => x.tie === tieId && x.beat !== this.beatSeq).flatMap((x) => x.learnedBy as EntityId[]);
+    // the ones who learned it THIS beat are still outsiders for this turn's narration (the slip is what the narrator voices); from the next beat they are in on it
+    const thisBeat = (tieId: string): ReadonlySet<EntityId> => new Set(slips.filter((x) => x.tie === tieId && x.beat === this.beatSeq).flatMap((x) => x.learnedBy as EntityId[]));
+    const ties: PrivateTie[] = [];
+    for (const a of this.alliances.all()) {
+      if (!a.knownTo.includes(me)) continue; // an alliance the player has no pathway to is not the narrator's to know
+      ties.push({ id: a.id, kind: a.members.includes(me) ? "alliance" : "pitch", label: `the alliance "${a.name}"`, insiders: [...new Set([...a.knownTo, ...a.members, ...learned(a.id)])].filter((x) => !thisBeat(a.id).has(x)) });
+    }
+    for (const d of this.deals.forParty(me)) {
+      if (d.status !== "open") continue;
+      ties.push({ id: d.id, kind: "deal", label: `the ${d.kind} deal (${d.terms})`, insiders: [...new Set([...d.parties, ...(d.formationWitnesses ?? []), ...learned(d.id)])].filter((x) => !thisBeat(d.id).has(x)) });
+    }
+    const scenes = tieScenes(earshot, me, ties);
+    const out: DiscretionView["ties"] = [];
+    for (const sc of scenes) {
+      const traitsOf = (id: EntityId) => {
+        const style = this.house!.npcs.find((n) => n.id === id)?.character.strategyStyle;
+        const vol = this.soulObj(id)?.volatility ?? 0.3;
+        return { leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, volatility: vol };
+      };
+      let call: "open" | "defer" | "slip" = sc.outsiders.length ? "defer" : "open";
+      let slipBy: EntityId | undefined;
+      const prior = slips.find((x) => x.tie === sc.tie.id && x.day === day);
+      if (sc.outsiders.length) {
+        if (prior) {
+          // already let out today: this beat's slip stays a slip (a rebuilt prompt), a later beat's does not roll again
+          if (prior.beat === this.beatSeq && sc.speakers.includes(prior.by as EntityId)) { call = "slip"; slipBy = prior.by as EntityId; }
+        } else {
+          for (const sp of sc.speakers) {
+            const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:discretion:${sp}:${sc.tie.id}:${day}`)).next();
+            if (discretionCall(traitsOf(sp), sc.outsiders.length, roll) === "slip") { call = "slip"; slipBy = sp; break; }
+          }
+          if (call === "slip" && slipBy) this.applyDiscretionSlip(sc.tie, slipBy, sc.outsiders.filter((o) => o !== me) as EntityId[], day);
+        }
+      }
+      out.push({
+        kind: sc.tie.kind, label: sc.tie.label,
+        inOn: [...sc.speakers, ...(sc.tie.insiders.includes(me) ? [me] : [])].map((id) => this.nameOf(id)),
+        notInOn: sc.outsiders.map((id) => this.nameOf(id)),
+        call, ...(slipBy ? { slipBy: this.nameOf(slipBy) } : {}),
+      });
+    }
+    const crowd = earshot.map((id) => this.nameOf(id));
+    return out.length || crowd.length >= 2 ? { ties: out, crowd } : undefined;
+  }
+  /** ORW-1171: a slip is an engine event. Record it, and let the people in earshot who were not in on the tie learn it. */
+  private applyDiscretionSlip(tie: PrivateTie, by: EntityId, outsiders: EntityId[], day: number): void {
+    const s = this.live;
+    if (!s) return;
+    (s.discretionSlips ??= []).push({ tie: tie.id, by, learnedBy: outsiders, day, beat: this.beatSeq });
+    const content = `${this.nameOf(by)} let slip ${tie.label} in front of ${outsiders.map((o) => this.nameOf(o)).join(", ") || "the room"}`;
+    for (const o of outsiders) {
+      if (tie.kind !== "deal") this.alliances.reveal(tie.id, o);
+      this.npcKnowledge?.learn?.(o, { content, factId: `slip:${tie.id}:${by}:${day}`, confidence: 0.9, hops: 1, distortion: 0 });
+    }
+  }
+
   getMomentPrompt(req: MomentPromptReq): MomentPromptView {
     // #1792 — one-shot Producer Read: consume the pending ExchangeAccounting and clear
     // it so it never fires again (not even on the shared view()/HUD path). Convert to
@@ -23340,6 +23416,7 @@ export class GameSessionAdapter implements GameSession {
     // ADR 0019 Layer 2: augment the NARRATION view (only) with each present houseguest's own knowledge
     // scope. Absent when nobody present holds anything ⇒ byte-identical prompt.
     const pk = this.presentKnowledgeForPrompt();
+    const disc = this.discretionForPrompt(); // ORW-1171: who in earshot is in on what, and the engine's discretion call
     // Augment the narration view with the one-shot Producer Read string (if any).
     // Present ONLY in the getMomentPrompt path — the shared view() never carries it,
     // so the HUD/getGameState never sees or consumes it.
@@ -23348,7 +23425,8 @@ export class GameSessionAdapter implements GameSession {
       : pk.length
         ? { ...baseView, presentKnowledge: pk }
         : baseView;
-    const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
+    const view0d = disc ? { ...view0, discretion: disc } : view0;
+    const view1 = slept ? { ...view0d, whileYouSlept: slept } : view0d;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
     const view3a = bedsNow ? { ...view2, beds: bedsNow } : view2;
