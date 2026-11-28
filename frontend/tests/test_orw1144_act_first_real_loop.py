@@ -63,11 +63,18 @@ def _engine_u(stack, name, args=None):
     return r["result"]
 
 
+def _voice_house(stack):
+    """A narrator line that names every houseguest and the premiere entrances (the engine's own faithfulness checks then find the beats voiced, so no re-ground or forced advance rides on the next turn)."""
+    house = (_engine_u(stack, "getGameState") or {}).get("house") or []
+    names = ", ".join(str(h.get("name")) for h in house if isinstance(h, dict) and h.get("name"))
+    return [{"deltas": [f"The premiere entrances play out, one by one: {names}. They all walk in and the house settles."], "delay": 0}]
+
+
 def _settle_premiere(stack, sid):
     """The real order (test_p0h): the first message starts the clock; the premiere's staged entrances then run (the narrator's advanceGame); only after that is the player free to move."""
     STUB.script.clear()
     STUB.forced_script.clear()
-    STUB.script.extend(_NARRATE)
+    STUB.script.extend(_voice_house(stack))
     ws_turn(stack["fe"], sid, "Nice to meet you all.", timeout=120, client_msg_id="orw1144-warmup", headers=stack["auth"])
     for _ in range(80):
         ent = (_engine_u(stack, "premiereIntros") or {}).get("entrance")
@@ -87,16 +94,14 @@ def _log(stack):
     return pathlib.Path(stack["fe_log"]).read_text(errors="replace")
 
 
-# (name, expected act-first outcome, message, scripted act-first answer, narrator script)
-_NARRATE = [{"deltas": ["The house settles."], "delay": 0}]
+# (name, expected act-first outcome, message, scripted act-first answer, does the narrator call a tool first)
 CASES = [
-    ("acted-direct-only", "acted", "I head to the kitchen.", [{"name": "moveTo", "args": {"rooms": ["kitchen"]}}], _NARRATE),
-    ("acted-plus-narrator-tool", "acted", "I walk over to the dining room.", [{"name": "moveTo", "args": {"rooms": ["dining-room"]}}],
-     [{"tool_calls": [{"name": "advanceGame", "args": {}}]}, {"deltas": ["The day moves on."], "delay": 0}]),
-    ("noAction", "noAction", "I wonder what is going on in the kitchen right now.", [], _NARRATE),
-    ("skipped-no-cue", "skipped:no-cue", "Nice to meet you all.", None, _NARRATE),
-    ("skipped-ungrounded", "skipped:ungrounded", "Hello everyone, how is the day going?", None, _NARRATE),
-    ("prefilter-skip", "skipped:ooc", "ooc: brb one minute", None, _NARRATE),
+    ("acted-direct-only", "acted", "I head to the kitchen.", [{"name": "moveTo", "args": {"rooms": ["kitchen"]}}], False),
+    ("acted-plus-narrator-tool", "acted", "I walk over to the dining room.", [{"name": "moveTo", "args": {"rooms": ["dining-room"]}}], True),
+    ("noAction", "noAction", "I wonder what is going on in the kitchen right now.", [], False),
+    ("skipped-no-cue", "skipped:no-cue", "Nice to meet you all.", None, False),
+    ("skipped-ungrounded", "skipped:ungrounded", "Hello everyone, how is the day going?", None, False),
+    ("prefilter-skip", "skipped:ooc", "ooc: brb one minute", None, False),
 ]
 
 
@@ -105,12 +110,14 @@ def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_a
     sid = _session(stack_af, "orw1144")
     _settle_premiere(stack_af, sid)
     problems = []
-    for i, (name, outcome, text, act, narrate) in enumerate(CASES):
+    for i, (name, outcome, text, act, narrator_tool) in enumerate(CASES):
         STUB.script.clear()
         STUB.forced_script.clear()
         if act is not None:
             STUB.forced_script.append({"tool_calls": act})
-        STUB.script.extend(narrate)
+        if narrator_tool:
+            STUB.script.append({"tool_calls": [{"name": "whereabouts", "args": {}}]})
+        STUB.script.extend(_voice_house(stack_af))
         rows_before, log_before = len(_rows(stack_af)), len(_log(stack_af))
         try:
             res = ws_turn(stack_af["fe"], sid, text, timeout=120, client_msg_id=f"orw1144-{i}", headers=stack_af["auth"])
@@ -132,7 +139,7 @@ def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_a
             problems.append(f"{name}: the turn was ledgered as a failure")
         elif outcome == "acted" and not any(str(b).startswith("act-first:") for b in (rows[-1].get("beltsFired") or {})):
             problems.append(f"{name}: an acted turn must carry its act-first commit on the ledger row")
-        if name == "acted-plus-narrator-tool" and "advanceGame" not in (rows[-1].get("toolsCalled") or [] if rows else []):
+        if name == "acted-plus-narrator-tool" and "whereabouts" not in (rows[-1].get("toolsCalled") or [] if rows else []):
             problems.append(f"{name}: the narrator's own tool call is missing from the ledger row")
         if "chat_stream generator failed" in new:
             problems.append(f"{name}: the chat_stream generator failed")
