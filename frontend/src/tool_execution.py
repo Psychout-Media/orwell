@@ -1678,6 +1678,13 @@ async def execute_tool_block(
     elif tool == "turnIn":
         desc = "turnIn"
         result = await do_turn_in(content, owner=owner)
+        # ORW-1165: the closed day's recap is its own chat message ("Day N in review"), saved before the new week's chapter row and before the morning narration (idempotent per day, fail-soft).
+        if isinstance(result, dict) and not result.get("error"):
+            try:
+                from src import orwell_day_recap
+                orwell_day_recap.save_from_turn_in(owner, result)
+            except Exception as _fs_exc:
+                _failsoft_note("tool_execution:execute_tool_block:day-recap", _fs_exc)
         # ORW-275: a turnIn that crossed a week boundary carries `weekChapter` - save the chapter row (idempotent per week, fail-soft).
         if isinstance(result, dict) and not result.get("error"):
             try:

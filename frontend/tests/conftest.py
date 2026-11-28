@@ -581,3 +581,15 @@ def pytest_runtest_teardown(item, nextitem):
                     fd.finish(request)  # runs the fixture's teardown (stops the stack) and clears its cached result: the rerun's setup boots a new one
                 except Exception:  # a stack that will not stop cleanly must not hide the test's own failure
                     pass
+
+
+@pytest.fixture(autouse=True)
+def _season_boundary_marker_never_leaks_between_tests():
+    """ORW-1051: a season created or reset for an owner leaves a one-shot marker that the owner's NEXT chat turn consumes (routes.chat_helpers._PENDING_SEASON_BOUNDARY).
+    A test that creates a season must not hand its marker to a later test that happens to use the same owner name."""
+    try:
+        from routes import chat_helpers
+        chat_helpers._PENDING_SEASON_BOUNDARY.clear()
+    except Exception:
+        pass
+    yield

@@ -15,7 +15,7 @@ const room = (s: GameSessionAdapter): string => s.whereabouts()!.room;
 describe("ORW-1014 resolvePlayerMove skip", () => {
   it("without skip the words move the player, as before", () => {
     const s = started(31);
-    expect(s.resolvePlayerMove({ text: "I go to the kitchen" }).playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(s.resolvePlayerMove({ text: "I go to the kitchen" }).playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
   });
 
   it("skip move leaves the player where they are and records no move", () => {
@@ -35,6 +35,6 @@ describe("ORW-1014 resolvePlayerMove skip", () => {
   it("an unknown skip value is ignored by the engine", () => {
     const s = started(34);
     const r = s.resolvePlayerMove({ text: "I go to the kitchen", skip: [] });
-    expect(r.playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(r.playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
   });
 });

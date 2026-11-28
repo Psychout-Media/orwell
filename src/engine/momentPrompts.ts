@@ -1205,9 +1205,20 @@ function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
   if (!d.made) {
     return ["    Veto decision: NOT MADE YET. The game announces it at the Veto Ceremony; until then nobody, the holder included, has decided, so no one states or hints which way it went, and nobody is named as coming down."];
   }
-  if (!d.used) return [`    Veto decision (made): ${cer.veto.holder.name} did NOT use it; the nominees stand as they are.`];
-  const saved = d.saved ? (d.saved.id === cer.veto.holder.id ? "themselves" : d.saved.name) : "a nominee";
-  return [`    Veto decision (made): ${cer.veto.holder.name} USED it on ${saved}${d.replacement ? `; ${cer.hoh ? cer.hoh.name : "the HOH"} named ${d.replacement.name} as the replacement` : ""}. Nobody else came down.`];
+  const holder = cer.veto.holder.name;
+  const finalBlock = cer.nominees.map((n) => n.name);
+  const onBlock = finalBlock.length ? finalBlock.join(" and ") : "the nominees the game lists";
+  if (!d.used) return [`    Veto decision (made, engine truth): ${holder} holds the veto and did NOT use it. Nobody was saved and nobody came off the block; no replacement. The two on the block are ${onBlock}.`];
+  // ORW-1052: a holder who is a nominee and saves THEMSELF was voiced as saving the OTHER nominee (the old line said only "USED it on themselves", which a narrator read past). State it as a self-save, name who stays, and the final two.
+  const self = !!d.saved && d.saved.id === cer.veto.holder.id;
+  const hohName = cer.hoh ? cer.hoh.name : "the HOH";
+  const savedLine = self
+    ? `${holder} used it on THEMSELF: ${holder} (the holder) is the one saved and came off the block. The holder did NOT save anyone else; no other nominee came down.`
+    : `${holder} used it to save ${d.saved ? d.saved.name : "a nominee"}, who came off the block. ${holder} is NOT the one saved; no one else came down.`;
+  const replLine = d.replacement ? `${hohName} named ${d.replacement.name} as the replacement nominee.` : "No replacement is recorded.";
+  return [
+    `    Veto decision (made, engine truth): ${holder} holds the veto and USED it. ${savedLine} ${replLine} The two on the block now are ${onBlock}; voice no other saved person and no other block.`,
+  ];
 }
 
 /** ORW-715: who is still on the floor of a staged competition and who is already out, so an eliminated houseguest is never put back into a later round or the final. */
@@ -1402,6 +1413,10 @@ export function renderGameContext(view: GameStateView): string {
         ? [`    THE ${milestoneLabel(wa.houseEvent.kind as keyof typeof MILESTONE_LABEL).toUpperCase()} IS IN SESSION (engine truth): the whole house is gathered in ${roomRefHere(wa.houseEvent.room)}, and that is where it happens.`]
         : []),
       `    With you: ${here}.`,
+      // ORW-1169: a private talk is a lock the engine keeps: the two are busy until the scene ends.
+      ...(wa.privateTalk
+        ? [`    PRIVATE TALK (engine truth): you are talking privately with ${wa.privateTalk.with.name}. Neither of you leaves, and nobody else walks in, until the talk ends (a goodbye, one of you walking off, or an interruption the story shows). Keep the scene with them; do not move ${wa.privateTalk.with.name} elsewhere and do not write anyone else into the room.`]
+        : []),
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
         ? [`    SINCE YOU SPOKE (engine truth - weave in as ONE short beat, never skip it): ${[wa.sinceSend.arrived.length ? `${wa.sinceSend.arrived.join(", ")} just walked in` : "", wa.sinceSend.departed.length ? `${wa.sinceSend.departed.join(", ")} left the room` : ""].filter(Boolean).join("; ")}.`]
@@ -1452,7 +1467,7 @@ export function renderGameContext(view: GameStateView): string {
     return bits.length ? ` — ${bits.join(", ")}` : "";
   };
   const ent = pr ? premiereEntranceOf(pr) : null;
-  const premiereLines: string[] = !pr ? [] : ent ? premiereEntranceLines(ent, pr.met, observable, pr.remaining?.length ?? 0) : [
+  const premiereLines: string[] = !pr ? [] : ent ? (ent.stage === "done" ? premiereClosedLines() : premiereEntranceLines(ent, pr.met, observable, pr.remaining?.length ?? 0)) : [
     `- PREMIERE — THE CHAMPAGNE CIRCLE (engine truth): the producers convened the whole house for ` +
       `champagne-circle introductions, so all ${pr.total - 1} houseguests are MET at the toast — there is ` +
       `no roll-call to work through and nobody left to hunt down.`,
@@ -2015,7 +2030,7 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     "- BOARD (engine-committed — the ONLY truth for these; name EXACTLY these people, never anyone else, and never invent a result):",
     `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : finalThree ? "nobody — in the Final 3 the HOH alone chooses which of the two remaining rivals leaves; do not call anyone a nominee" : "nobody yet — name no nominees"}.`,
     `    Veto: ${cer.veto.holder
-      ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
+      ? `held by ${cer.veto.holder.name}${cer.veto.used ? (cer.veto.decision?.made && cer.veto.decision.saved ? (cer.veto.decision.saved.id === cer.veto.holder.id ? " (used on THEMSELF: the holder is the one saved)" : ` (used to save ${cer.veto.decision.saved.name}, not the holder)`) : " (used)") : " (not used)"}`
       : finalThree
         ? "none — there is no Power of Veto in the Final 3; stage no veto"
         : "still being played or not yet decided — name no winner and no holder"}.`,
@@ -2299,6 +2314,19 @@ function premiereEntrancesFragment(): string {
     "the player has just walked through the front door into the house for the very first time,",
     "the player is arriving at the house for the very first time (the game stages their entrance in the arrival order: until the game shows the player's OWN entrance they are NOT inside \u2014 never narrate them walking in, standing in the room or being greeted before then),",
   );
+}
+
+/**
+ * ORW-1133 (Ryne, 2026-11-28, "Valerie just introduced herself to me for like the 3rd time"): once the staged entrances flow reaches stage "done" the circle IS closed, but this flow printed NO engine line for it
+ * (the "circle has closed" line lives only on the old no-entrance path), so the premiere fragment's own "OVERRIDE once the engine truth reports it DONE" never had anything to trigger on and the narrator kept
+ * re-running introductions and toasts for the whole social hold. This is that engine line: introductions are over, for good.
+ */
+function premiereClosedLines(): string[] {
+  return [
+    `- PREMIERE \u2014 THE CIRCLE HAS CLOSED (engine truth): every houseguest has already given their toast and introduced themselves to the house and to the player, and the toast is over. ` +
+      `Nobody introduces themselves again: no name-hometown-job recital, no toast, no "nice to meet you" as if for the first time, no welcome-to-the-house speech. They are people who have met; talk as people who have met. ` +
+      `This overrides the toast and introduction beats above. Answer the player's newest message in this scene (the bedrooms, settling in, getting to know each other), and never repeat a line a houseguest has already said.`,
+  ];
 }
 
 function premiereEntranceLines(

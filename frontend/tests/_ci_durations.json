@@ -671,6 +671,8 @@
  "test_orw10_islull_always_bound.py": 0.51,
  "test_orw10_nomination_hypothetical.py": 0.03,
  "test_orw10_veto_ceremony_nominee_recap.py": 0.04,
+ "test_orw1143_stream_failure.py": 1.0,
+ "test_orw1144_act_first_real_loop.py": 40.0,
  "test_orw115_hud_day.py": 0.03,
  "test_orw133_narrator_outage_pause.py": 0.78,
  "test_orw134_prune_script.py": 1.55,

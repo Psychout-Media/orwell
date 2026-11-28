@@ -44,7 +44,7 @@
     { id: "orwell-status",   icon: "📋", title: "House Status",   order: 1 },
     { id: "orwell-deals",    icon: "🤝", title: "Your Deals",     order: 2 },
     { id: "orwell-presence", icon: "🧭", title: "Where You Are",  order: 3 },
-    { id: "orwell-night",    icon: "🌙", title: "Nightfall",      order: 4 },
+    { id: "orwell-night",    icon: "🌙", title: "Time of day",    order: 4 },
     { id: "orwell-cast",     icon: "🎬", title: "The Cast",       order: 5 },
     { id: "orwell-cast-pin", icon: "👥", title: "Pinned Cast",    order: 6 },
     { id: "orwell-finale",   icon: "🏆", title: "The Finale",     order: 7 },

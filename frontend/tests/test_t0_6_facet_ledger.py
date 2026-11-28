@@ -316,14 +316,18 @@ def test_every_slot_gets_a_state_inside_its_region_and_a_cast_never_repeats_one(
         assert len(set(states)) == 15, (seed, states)
 
 
+# ORW-1127: skin, hair and face are now dealt as one coherent look (tests/test_orw1127_coherent_look.py), so they are outside this isolation pin
+_LOOK_KEYS = ("state", "jobExamples", "skinToneCue", "hair", "lookGroup", "lookKind", "lookMixedWith", "lookSource", "hairTexture", "hairColour", "eyes", "faceFeature", "facialFeatures")
+
+
 def test_dealing_the_state_moves_no_other_dealt_value():
     import hashlib
     import json
     h = hashlib.sha256()
     for seed in (1, 2, 3, 77, 2026, 4242):
         for hand in L.mint_facet_ledger(seed, 15):
-            h.update(json.dumps({k: v for k, v in hand.items() if k not in ("state", "jobExamples")}, sort_keys=True).encode())
-    assert h.hexdigest() == "f821b75007415c00593bdc333ad2fca75ada950738ca8ec6ed5182323226df89"  # equal to the hash over the same hands on main
+            h.update(json.dumps({k: v for k, v in hand.items() if k not in _LOOK_KEYS}, sort_keys=True).encode())
+    assert h.hexdigest() == "c6787c48c893490e3819292a5ec53b90d7729b41f3528c3fff59283d344aa6d6"  # equal to the hash over the same hands on main, less the look keys ORW-1127 now deals together
 
 
 def test_the_hand_names_the_state_and_the_taken_list_names_the_states_in_play():
@@ -358,8 +362,8 @@ def test_every_slot_gets_three_distinct_example_jobs_inside_its_family_and_no_ot
         assert all(len(hand["jobExamples"]) == 3 for hand in ledger if hand["vocationFamily"] in L.FAMILY_JOBS)  # an outlier family has none
         assert all(set(hand["jobExamples"]) <= set(L.FAMILY_JOBS[hand["vocationFamily"]]) for hand in ledger if hand["vocationFamily"] in L.FAMILY_JOBS)
         for hand in ledger:
-            h.update(json.dumps({k: v for k, v in hand.items() if k not in ("state", "jobExamples")}, sort_keys=True).encode())
-    assert h.hexdigest() == "f821b75007415c00593bdc333ad2fca75ada950738ca8ec6ed5182323226df89"  # equal to the hash over the same hands on main
+            h.update(json.dumps({k: v for k, v in hand.items() if k not in _LOOK_KEYS}, sort_keys=True).encode())
+    assert h.hexdigest() == "c6787c48c893490e3819292a5ec53b90d7729b41f3528c3fff59283d344aa6d6"  # equal to the hash over the same hands on main, less the look keys ORW-1127 now deals together
 
 
 def test_the_hand_offers_the_example_jobs():

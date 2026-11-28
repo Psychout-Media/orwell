@@ -2119,31 +2119,16 @@ def setup_chat_routes(
             puppeteering the composer with a "stream dropped" retry. Terminating the stream cleanly
             here removes that trigger at the source: the client's in-band error path renders it and
             never enters auto-recovery."""
-            saw_done = False
+            # ORW-1143: the wrapper itself lives in src/orwell_stream_failure.py (testable without the route): neutral retryable error frame, one failed ledger row, one alert per session per 15 min.
+            from src import orwell_stream_failure as _sf
+            _guarded = _sf.guard_stream(stream_with_save, session=session, user=ctx.user, live_game=bool(getattr(ctx, "game_active", False)),
+                                        on_finish=lambda: _active_streams.pop(session, None))
             try:
-                async for chunk in stream_with_save():
-                    if chunk == "data: [DONE]\n\n":
-                        saw_done = True
+                async for chunk in _guarded:
                     yield chunk
-            except (asyncio.CancelledError, GeneratorExit):
-                # A genuine client disconnect — the mode-specific excepts already saved the partial.
-                # Don't synthesize a terminal: the client is gone, and the detached run lives on.
-                raise
-            except Exception as e:  # noqa: BLE001 — convert ANY generator failure into a surfaced error
-                logger.exception("chat_stream generator failed (session %s)", session)
-                if not saw_done:
-                    yield (f'event: error\ndata: '
-                           f'{json.dumps({"error": str(e) or "Stream failed.", "status": 500, "terminal": True})}\n\n')
-                    yield "data: [DONE]\n\n"
-                    saw_done = True
             finally:
+                await _guarded.aclose()
                 _active_streams.pop(session, None)
-            if not saw_done:
-                # The generator returned without ever emitting [DONE] (an empty/dropped upstream stream).
-                # Close the body with a typed terminal so the client never sees a bare transport drop.
-                yield (f'event: error\ndata: '
-                       f'{json.dumps({"error": "The stream ended without a reply.", "status": 502, "terminal": True})}\n\n')
-                yield "data: [DONE]\n\n"
 
         # _prepare_chat_stream ends here: hand the built producer + the turn metadata the tail needs
         # (session / ctx / compare_mode) back to the caller. The WS `turn` relay reuses `producer` only;
