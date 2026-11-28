@@ -1530,6 +1530,22 @@ export function renderGameContext(view: GameStateView): string {
   // not knowledge": a fact witnessed only by B appears ONLY under B's block, never A's. Prompt-honoured
   // defence-in-depth (Layer 3's post-hoc guard is the backstop), never the sole wall. Present only when
   // someone in the room actually holds/suspects something ⇒ absent otherwise (byte-identical).
+  // ORW-1171: DISCRETION. The engine decides whether a houseguest may raise a private alliance or deal with people in earshot who are not in on it; the narrator only voices the call (ADR 0003 / 0005).
+  // Present only when a tie has a houseguest in the room, or two or more houseguests are in earshot of the player (a pitch made aloud) => byte-identical otherwise.
+  const discretionLines: string[] = (() => {
+    const d = view.discretion;
+    if (!d) return [];
+    const nm = (a: readonly string[]): string => a.map((n) => neutralizeForPrompt(n)).join(", ");
+    const lines: string[] = ["- WHO IS IN ON WHAT (engine truth; discretion - the engine has decided it, you only voice it):"];
+    for (const t of d.ties) {
+      const what = `${neutralizeForPrompt(t.label)}`;
+      if (t.call === "open") lines.push(`    · ${what}: everyone in earshot is in on it (${nm(t.inOn)}), so it may be raised aloud.`);
+      else if (t.call === "slip") lines.push(`    · ${what}: in on it here: ${nm(t.inOn)}. NOT in on it, and in earshot: ${nm(t.notInOn)}. THE ENGINE MARKED A SLIP THIS TURN: ${neutralizeForPrompt(t.slipBy ?? "one of them")} lets it out in front of ${nm(t.notInOn)}, a real lapse (carelessness, nerves, a hot moment) that those people now genuinely know. Voice the slip as a slip, with the others' reaction; no other houseguest airs it.`);
+      else lines.push(`    · ${what}: in on it here: ${nm(t.inOn)}. NOT in on it, and in earshot: ${nm(t.notInOn)}. DEFER: nobody in on it raises it, names its members or its terms, or says whether they are in it while those people can hear. They put it off ("later", "find me tonight", "not here") or ask the player for a word alone, in their own manner; a cover line or a change of subject is fine.`);
+    }
+    if (d.crowd.length >= 2) lines.push(`    · Houseguests in earshot of the player right now: ${d.crowd.length > 6 ? `${nm(d.crowd.slice(0, 6))} and ${d.crowd.length - 6} more` : nm(d.crowd)}. If the player pitches an alliance or a deal, or asks someone to join one, out loud in front of them, the houseguest asked answers in the open ONLY about what everyone present may hear; they defer the real answer or ask to talk alone, unless the line above says SLIP. A secret is never aired in front of people it has nothing to do with just because the player raised it.`);
+    return lines;
+  })();
   const presentKnowledgeLines: string[] = (view.presentKnowledge ?? []).length
     ? [
         "- WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS (voice each ONLY from THEIR OWN block —",
@@ -1678,6 +1694,7 @@ export function renderGameContext(view: GameStateView): string {
     ...ceremonyAndFloorLines,
     ...whereaboutsLines,
     ...presentKnowledgeLines,
+    ...discretionLines,
     ...premiereLines,
     // #1792 — Producer Read: the Vault-free post-scene exchange-accounting beat,
     // delivered ONCE in the moment prompt immediately after a substantive interaction.
