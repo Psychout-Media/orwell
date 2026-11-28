@@ -93,6 +93,12 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
             from src import orwell_engine as engine  # type: ignore[no-redef]
         from routes import chat_helpers as _ch
         key = user or "default"
+        memo = af.take_retry_memo(key, text, client_msg_id)
+        if memo is not None:
+            # ORW-1143: the earlier turn committed, then died before its reply. Nothing is committed again; the narrator voices what already happened.
+            af.put_stash(key, {"outcome": "retry-after-failure", "text": "", "done": [], "pending": [], "blocked": [],
+                               "notes": list(memo.get("notes") or []) + ["The previous reply failed to reach the player. The change above is already in the game: voice it now, change nothing again."]})
+            return True
         state = await engine.get_game_state(user=user)
         if isinstance(state, dict) and state.get("started") is False:
             return False  # ORW-1014: the casting interview has no board to act on (prod 2026-11-28: 13 of 26 messages, two paid calls); the ordinary path runs as before
@@ -170,6 +176,8 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
         extra = {"previous_reply": previous_reply} if previous_reply else {}
         await engine.resolve_player_move(text, f"move:{client_msg_id}" if client_msg_id else None, user=user, skip=["move", "bed"], **extra)
         af.put_stash(key, {"outcome": outcome, "text": text, "done": done, "pending": pending, "blocked": blocked, "notes": notes})
+        if done:
+            af.put_commit_memo(key, client_msg_id, notes)
         return True
     except Exception as exc:
         try:

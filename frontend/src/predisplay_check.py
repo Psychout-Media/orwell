@@ -32,6 +32,9 @@ FACT_VETO = "veto-decision"  # ORW-715
 FACT_EVICTEE = "evictee-named"  # ORW-715
 FACT_EVENT_ROOM = "event-room"  # ORW-740b
 FACT_PLAYER_ROOM = "player-room"  # ORW-1003, a hard fact here since ORW-408
+FACT_TIME_JUMP = "time-jump"  # ORW-1150: the narration passes the night (morning comes, hours go by, people wake) while the engine clock still stands at night
+FACT_BED_WORD = "bed-word"  # ORW-1150: a bed word the room's real beds do not have ("double" in a room of singles)
+FACT_SLEEPER_ROOM = "sleeper-room"  # ORW-1150: a sleeping houseguest the engine does not have in the player's room is narrated in a bed there
 FACT_ABSENT = "absent-present"  # ORW-408: someone who is not in the room speaks or acts there (the presence wall detects it)
 
 # The sleeper is only MENTIONED (asleep, snoring, in bed, dreaming): allowed. Anything else near their name with a voice or a movement is a conflict.
@@ -405,6 +408,9 @@ def correction_for(fact: str) -> str:
         FACT_PART_OF_DAY: "The narration placed the present in the wrong part of the day; use only the part of the day the game gave.",
         FACT_VETO: "The veto decision is stated wrongly or before the game made it; state only the engine's decision, or none if it is not made yet.",
         FACT_EVICTEE: "A houseguest is named as evicted who the game did not evict; name only the engine's evictee.",
+        FACT_TIME_JUMP: "The narration passed the night but the game's clock has not moved; stay in the present moment.",
+        FACT_BED_WORD: "A bed was named that the room does not have; name only the room's real beds.",
+        FACT_SLEEPER_ROOM: "A sleeping houseguest was put in a bed in the player's room; narrate sleepers only where the game has them.",
         FACT_PLAYER_ROOM: "The narration put the player in a room they are not in; keep them where the game has them.",
         FACT_EVENT_ROOM: "The house is called to, or gathered in, a room other than the one the game staged the event in; name only the engine's room.",
     }.get(fact, "")
@@ -606,6 +612,89 @@ def part_of_day_conflict(text: str, time_of_day: Any, early_morning: Any, *, in_
     return None
 
 
+# ORW-1150 (prod 11-28 04:24Z): the narrator wrote a whole night away ("the lamp off for hours", the house up, the beds empty) while the engine clock stood at 11:41pm. The engine clock is the only clock: a
+# sentence that passes the night is a conflict while the engine's part of day is still evening or night. When the engine DID move (a turn-in or sleep ran this turn) the fresh state already says morning,
+# so the same words pass. Only narration counts (quoted talk is a guess); a sentence about the past or the future is not passing time now.
+_JUMP_RE = re.compile(
+    r"\b(?:(?:the\s+)?(?:next|following)\s+morning|morning\s+(?:comes|came|arrives|arrived|breaks|broke|finds|light|sun)|(?:the\s+)?(?:dawn|sunrise|daybreak)\b|first\s+light|"
+    r"(?:sun|sunlight|daylight)\s+(?:streams?|pours?|spills?|filters?|creeps?|slants?|climbs?)|hours\s+(?:pass\w*|later|go(?:es)?\s+by|slip\w*|drift\w*|tick\w*)|"
+    r"(?:through|all|the\s+rest\s+of)\s+the\s+night|overnight|slept\s+through|(?:you|he|she|they|everyone|the\s+house)\s+(?:wakes?|woke|rouses?|stirs?|stirred)\b|(?:waking|wakes?|woke)\s+up|"
+    r"(?:lamp|light|lights)\b[^.!?]{0,40}\bfor\s+hours|for\s+hours\b[^.!?]{0,40}\b(?:asleep|sleeping|dark|silent|off))",
+    re.IGNORECASE)
+_JUMP_NOT_NOW_RE = re.compile(r"\b(?:tomorrow|yesterday|last\s+night|earlier|had|will|won't|would|could|might|should|if|until|before|by\s+the\s+time|when\s+(?:the|it)|wake[- ]?up\s+call|alarm|plan\w*|want\w*|hope\w*)\b|\?", re.IGNORECASE)
+
+
+def time_jump_conflict(text: str, time_of_day: Any, early_morning: Any, *, in_quote: bool = False) -> Optional[str]:
+    """The sentence that passes the night while the engine is still in the evening or at night, or None. Engine morning (or the early-morning flag) never conflicts: the clock did move."""
+    band = str(time_of_day or "")
+    if not text or band not in ("evening", "night", "late-night") or early_morning is True:
+        return None
+    for sent in _sentences(_outside_quotes(text, in_quote)):
+        if _JUMP_RE.search(sent) and not _JUMP_NOT_NOW_RE.search(sent):
+            return sent.strip()
+    return None
+
+
+# ORW-1150: bed words. The engine publishes the player's bedroom's real beds (`whereabouts.bedLayout`: singles and doubles). A word for a bed the room does not hold is a conflict.
+_DOUBLE_WORD_RE = re.compile(r"\b(?:(?:the|a|an|your|that|this|his|her|their)\s+(?:big\s+|wide\s+|large\s+)?double(?:\s+bed)?|double\s+beds?|queen(?:\s+bed)?|king(?:\s+bed)?)\b(?![- ]?(?:take|check|time|dose|shot|door|agent|vision|major|life|entendre|click|tap|dutch|espresso|checked))", re.IGNORECASE)
+_SINGLE_WORD_RE = re.compile(r"\b(?:single|twin)\s+beds?\b|\b(?:slim\s+)?singles\b", re.IGNORECASE)
+
+
+def bed_word_conflict(text: str, whereabouts: Any) -> Optional[str]:
+    """What the narration calls a bed the player's room does not have ("double" / "single"), or None. Needs the engine's bed layout for the room; without it nothing is checked."""
+    try:
+        lay = whereabouts.get("bedLayout") if isinstance(whereabouts, dict) else None
+        if not text or not isinstance(lay, dict):
+            return None
+        singles, doubles = int(lay.get("singles") or 0), int(lay.get("doubles") or 0)
+        if doubles == 0:
+            m = _DOUBLE_WORD_RE.search(text)
+            if m:
+                return "double"
+        if singles == 0:
+            m = _SINGLE_WORD_RE.search(text)
+            if m:
+                return "single"
+        return None
+    except Exception:  # failsoft-ok: orw1150-bed-word (an unreadable check never holds narration)
+        return None
+
+
+# ORW-1150: sleepers. A houseguest the engine lists as asleep who is not in the player's room is narrated in a bed there. The engine's room for the sleeper is the truth; the player's room is not it.
+_IN_BED_RE = re.compile(r"\b(?:in\s+(?:his|her|their|the|a)\s+(?:own\s+)?(?:beds?|bunks?)|in\s+beds?|under\s+the\s+covers|tucked\s+in|curled\s+up\s+in\s+(?:bed|(?:his|her|their)\s+bed))\b", re.IGNORECASE)
+
+
+def sleeper_room_conflict(text: str, state: Any, *, in_quote: bool = False) -> Optional[str]:
+    """The names (the engine's present list, for the correction) when a sentence puts an asleep houseguest who is not present in the player's room into a bed in it; None otherwise."""
+    try:
+        wh = state.get("whereabouts") if isinstance(state, dict) else None
+        if not text or not isinstance(wh, dict) or not wh.get("room"):
+            return None
+        here = {str(p.get("name")) for p in (wh.get("present") or []) if isinstance(p, dict) and p.get("name")}
+        sleepers = [str(a.get("name")) for a in (state.get("asleep") or []) if isinstance(a, dict) and a.get("name") and str(a.get("name")) not in here]
+        if not sleepers:
+            return None
+        from src.house_rooms import rooms_named_in
+        room = str(wh["room"])
+        names = wh.get("roomNames") if isinstance(wh.get("roomNames"), dict) else None
+        for sent in _sentences(_outside_quotes(text, in_quote)):
+            if not _IN_BED_RE.search(sent):
+                continue
+            who = [n for n in sleepers if any(re.search(r"(?<!\w)" + re.escape(f) + r"(?!\w)", sent) for f in _name_forms(n))]
+            if not who:
+                continue
+            named = rooms_named_in(sent, names)
+            letter = re.search(r"\bbed\s?room[\s-]+([A-Ca-c])\b", sent)
+            if letter and room.startswith("bedroom-") and room != "bedroom-" + letter.group(1).lower():
+                continue  # a lettered bedroom that is not the player's
+            if named and not any(room in rooms for rooms in named):
+                continue  # placed in another room: the presence of the player's room is not in question
+            return ", ".join(sorted(here)) if here else "nobody else"
+        return None
+    except Exception:  # failsoft-ok: orw1150-sleeper-room (an unreadable check never holds narration)
+        return None
+
+
 def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[Conflict]":
     """Like `find_conflicts` but each hit carries the name/phrase the correction needs. Same detection; fail-open."""
     try:
@@ -620,6 +709,14 @@ def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool
                 out.append(Conflict(FACT_CLOCK, ""))
         if part_of_day_conflict(text, state.get("timeOfDay"), state.get("earlyMorning"), in_quote=in_quote):
             out.append(Conflict(FACT_PART_OF_DAY, str(state.get("timeOfDay") or "").replace("-", " ")))
+        if time_jump_conflict(text, state.get("timeOfDay"), state.get("earlyMorning"), in_quote=in_quote):
+            out.append(Conflict(FACT_TIME_JUMP, str(state.get("timeOfDay") or "").replace("-", " ")))
+        bw = bed_word_conflict(text, state.get("whereabouts"))
+        if bw:
+            out.append(Conflict(FACT_BED_WORD, bw))
+        sr = sleeper_room_conflict(text, state, in_quote=in_quote)
+        if sr:
+            out.append(Conflict(FACT_SLEEPER_ROOM, sr))
         sched = state.get("daySchedule")
         if schedule_conflict(text, sched, in_quote=in_quote):
             out.append(Conflict(FACT_SCHEDULE, str((sched or {}).get("next") or "").replace("-", " ")))
@@ -755,6 +852,13 @@ def _correction_line(c: Conflict) -> str:
         return f"It is {c.detail or 'the part of day the game gave'} now; place nothing in another part of the day."
     if c.fact == FACT_EVENT_ROOM:
         return f"The whole house is gathered in {c.detail} for this event; do not call or place it anywhere else."
+    if c.fact == FACT_TIME_JUMP:
+        return f"The game's clock has not moved: it is still {c.detail or 'the same part of the day'}. Do not pass the night, wake anyone, or say hours went by; stay in this moment."
+    if c.fact == FACT_BED_WORD:
+        return "The beds in this room are " + ("all singles; there is no double here" if c.detail == "double" else "doubles, not singles") + ". Name only beds the room really has."
+    if c.fact == FACT_SLEEPER_ROOM:
+        who = "Nobody else is" if c.detail == "nobody else" else (f"Only {c.detail} are" if "," in c.detail else f"Only {c.detail} is")
+        return f"{who} in the room with the player; the sleeping houseguests are not in beds here. Narrate them only where the game has them, or not at all."
     if c.fact == FACT_ABSENT:
         who = "Nobody else is" if c.detail == "nobody else" else (f"Only {c.detail} are" if "," in c.detail else f"Only {c.detail} is") if c.detail else "Only the houseguests the game lists are"
         return f"{who} in the room with the player; no one else speaks or acts here."

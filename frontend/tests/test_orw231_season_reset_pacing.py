@@ -55,6 +55,7 @@ _AGENT_STORES = {
     "_LOOP_BREAK_PENDING_NOTE": "loop-break-advance",
     "_POSTSEASON_OFFTOPIC_TURNS": 2,
     "_REAPPROACH_LEVEL": 1,
+    "_RECAP_VOICED_DAY": 4,
 }
 
 

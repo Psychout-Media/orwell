@@ -1906,6 +1906,23 @@ _BED_REJECT_RE = re.compile(
 )
 
 
+# ORW-1150 (prod 11-28): a polite request ("I would like to go to bed", "I'd like to sleep", "I want to go to
+# sleep") is the player's own act, not a hedge. "would" stays a reject word for real hypotheticals ("I would
+# go to bed if..."): only the request forms below are rewritten to a plain first-person act before the checks.
+_BED_POLITE_RE = re.compile(
+    r"\b(?:i\s+would\s+(?:really\s+)?(?:like|love)\s+to|i['’]d\s+(?:really\s+)?(?:like|love)\s+to|"
+    r"i\s+(?:really\s+)?(?:want|need)\s+to|i\s+wanna|i['’]?m\s+gonna|let\s+me)\s+",
+    re.IGNORECASE,
+)
+# ORW-1150: a bare command is the player's own act too ("Sleep.", "Go to sleep.", "Bed.", "Goodnight").
+_BED_IMPERATIVE_RE = re.compile(
+    r"^\s*(?:ok(?:ay)?[,\s]+|alright[,\s]+)?(?:please\s+)?"
+    r"(?:sleep|bed|go\s+to\s+(?:sleep|bed)|time\s+(?:for|to)\s+(?:bed|sleep)|good\s*night|lights\s+out)"
+    r"(?:\s+now)?(?:[,\s]+please)?\W*$",
+    re.IGNORECASE,
+)
+
+
 def _player_means_going_to_bed(text) -> bool:
     """ORW-310 — True only when the player's message CLEARLY declares THEIR OWN going to bed / sleeping now.
     Pure, conservative. A sentence counts only if it is first-person, action-shaped (go to bed / turn in /
@@ -1915,6 +1932,7 @@ def _player_means_going_to_bed(text) -> bool:
     if not text or not isinstance(text, str):
         return False
     body = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    body = _BED_POLITE_RE.sub("I ", body)  # ORW-1150: "I would like to go to bed" -> "I go to bed"
     # Quoted speech reporting is not the player's own act ("she says 'I go to bed'") - leave to the cue rejects.
     for raw in re.split(r"(?<=[.!?\n])", body):
         if "?" in raw:
@@ -1923,7 +1941,7 @@ def _player_means_going_to_bed(text) -> bool:
             sent = sent.strip(" \t\"'“”")
             if not sent:
                 continue
-            if _BED_BARE_SLEEP_RE.match(sent):
+            if _BED_BARE_SLEEP_RE.match(sent) or _BED_IMPERATIVE_RE.match(sent):
                 return True
             if (_BED_ACTION_RE.search(sent) and _BED_FIRST_PERSON_RE.search(sent)
                     and not _BED_REJECT_RE.search(sent)):
@@ -1976,6 +1994,61 @@ def _bedtime_recap_directive(turn_in_output) -> str:
     except Exception:
         pass  # failsoft-ok: tolerant parse of model output: a non-JSON candidate is skipped and the next one tried
     return ""
+
+
+# ── ORW-1155 — the daily recap is voiced once per closed day, even when the turnIn ran outside a narrator turn. ──
+# The ORW-382 directive rides only the FE-run bedtime turnIn. A night ended any other way (a doze, a tool run outside the narrator, a restart mid-night) left its recap unvoiced for good. The FE now tracks the last
+# closed day whose recap was voiced, per user and session (persisted with the belt state, so a restart does not replay it); at the start of a turn, a newer non-empty engine recap is voiced first, then the player's
+# message is played, and the day is marked. A normal turnIn turn marks the day from its own result, so it is never voiced twice.
+_RECAP_VOICED_DAY: Dict[str, int] = {}
+
+
+def _recap_key(owner, session_id) -> str:
+    # Keyed by owner (the one game each owner has), not by chat session: a new chat session of the same game must not replay a voiced day, and the season reset (`_SEASON_PACING_STORES`) clears it by owner key.
+    return _belt_key(owner)
+
+
+def _recap_day_of(rec):
+    d = rec.get("day") if isinstance(rec, dict) else None
+    return d if isinstance(d, int) and not isinstance(d, bool) else None
+
+
+def _recap_has_content(rec) -> bool:
+    return isinstance(rec, dict) and any(rec.get(k) for k in ("highlights", "yourDay", "surfaced"))
+
+
+def _mark_recap_voiced(owner, session_id, turn_in_output) -> None:
+    """Record that the recap carried by a turnIn result is being voiced this turn (fail-open)."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        rec = data.get("dailyRecap") if isinstance(data, dict) else None
+        day = _recap_day_of(rec)
+        if day is not None and _recap_has_content(rec):
+            k = _recap_key(owner, session_id)
+            _RECAP_VOICED_DAY[k] = max(day, _RECAP_VOICED_DAY.get(k, 0))
+    except Exception as _e:
+        _failsoft_note("agent_loop:_mark_recap_voiced", _e)
+
+
+async def _recap_replay_note(owner, session_id) -> str:
+    """The system note that makes this turn voice a closed day's recap that was never voiced, or '' (nothing newer, an empty recap, unreadable). Marks the day voiced when it returns a note."""
+    try:
+        from src import orwell_engine as _oe_rc
+        rec = await _oe_rc.daily_recap(user=owner or "default")
+        day = _recap_day_of(rec)
+        if day is None or not _recap_has_content(rec):
+            return ""
+        k = _recap_key(owner, session_id)
+        if day <= _RECAP_VOICED_DAY.get(k, 0):
+            return ""
+        _RECAP_VOICED_DAY[k] = day
+        body = json.dumps({"dailyRecap": rec}, ensure_ascii=False)[:3000]
+        return ("(Production note, not for the player.) The day that just closed was never voiced as a day-in-review, and the engine's recap for it is below. Open this reply with it, BEFORE anything of the new "
+                "morning: a short dreamlike day-in-review as the player drifts off, only the facts in its highlights / yourDay / surfaced, never a list, never anything it does not contain. Then play out the "
+                "player's message as normal. Do not call dailyRecap or turnIn for this.\n" + body)
+    except Exception as _e:
+        _failsoft_note("agent_loop:_recap_replay_note", _e)
+        return ""
 
 
 def _bedtime_clock_note(turn_in_output) -> str:
@@ -8713,7 +8786,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS, _ESC_INELIGIBLE_ROUNDS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD, _RECAP_VOICED_DAY,
 )
 
 
@@ -10263,6 +10336,11 @@ async def _stream_agent_loop_impl(
     _direct_applied = False  # ORW-1014 (prod 2026-11-28 01:48Z): the own-round tail reads it after an act-first move that ran at the slot; only the bedtime/nap/pending-act branches used to bind it, so that turn died with UnboundLocalError
     _act_first_done = False  # ORW-1014: the act-first round runs at most once per turn
     _act_first_outcome = None  # ORW-1014: its outcome this turn (None = it did not run); an after-reply move belt that fires on a noAction counts as a miss
+    if _is_live_game and not _player_means_going_to_bed(_extract_last_user_message(messages) or ""):
+        _rc_note = await _recap_replay_note(owner, session_id)  # ORW-1155: a closed day's recap never voiced (the turnIn ran outside a narrator turn)
+        if _rc_note:
+            messages.append({"role": "system", "content": _rc_note})
+            _note_belt(owner, "recap-replay")
     for round_num in range(1, max_rounds + 1):
         _round_finish_reason = None
         round_response = ""
@@ -10643,6 +10721,7 @@ async def _stream_agent_loop_impl(
                                 messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bedtime_tool_message(_bt_out)}\n```"})
                                 _bt_out_clock = await _turn_in_output_with_clock(_bt_out, lambda: _oe_bt.get_game_state(user=_force_owner))
                                 messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out_clock)})
+                                _mark_recap_voiced(owner, session_id, _bt_out)  # ORW-1155
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
                                 if await _refresh_context_after_turn_in(messages, _force_owner, _bt_out):
@@ -10753,6 +10832,7 @@ async def _stream_agent_loop_impl(
                             _note_belt(owner, "act-first:" + _af_tool)
                             if _af_tool == "turnIn":
                                 _turn_slept = True
+                                _mark_recap_voiced(owner, session_id, _af_out)  # ORW-1155
                                 try:
                                     await _refresh_context_after_turn_in(messages, _force_owner, _af_out)
                                 except Exception as _fs_exc:
@@ -13821,6 +13901,7 @@ async def _stream_agent_loop_impl(
                 _turn_talk_nudges = 1  # the model asked itself: nothing to back-fill
             if block.tool_type == "turnIn" and _turn_in_applied(result):
                 _turn_slept = True
+                _mark_recap_voiced(owner, session_id, result.get("output"))  # ORW-1155
             _engine_result = _engine_result_for_transcript(block.tool_type, result)
             if _engine_result is not None:
                 tool_event["engine_result"] = _engine_result  # ORW-187: admin-only full result (stripped from the player's history payload)
