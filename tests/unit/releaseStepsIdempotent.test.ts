@@ -16,7 +16,7 @@ function premiere(seed: number) {
   return s;
 }
 const stage = (s: any) => s.premiereIntros()?.entrance?.stage as string | undefined;
-const arrived = (s: any) => s.premiereIntros()?.entrance?.arrived as number;
+const arrived = (s: any) => s.premiereIntros()?.entrance?.index as number;
 const spoke = (s: any) => s.snapshot().live.premiereEntrance.spoke.length as number;
 
 describe("ORW-1156 part 4 - release steps are at-most-once per key", () => {
@@ -87,6 +87,7 @@ describe("ORW-1156 part 4 - release steps are at-most-once per key", () => {
 
   it("turnIn with no key right after a night ended is held or a no-op: it never builds a second recap or rolls a second day", () => {
     const s = nightGame(35);
+    s.setBedtimeGateEnabled(true); // the played game's gate: a bed in the morning is held, not a second night
     const a = s.turnIn();
     expect(a.held).toBeUndefined();
     const day1 = s.getGameState().dayNumber;
