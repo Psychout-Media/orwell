@@ -191,15 +191,30 @@ _BELT_RUN_TOOLS = {"bedtime-turn-in-direct": "turnIn", "nap-direct": "nap"}
 _NOT_A_NARRATOR_ACT = frozenset({"noteMessage"})
 
 
+#: ORW-1011 C3: a commit the front end made from the pre-reply plan (`plan-commit:<tool>`). It is not a narrator call and not a belt: it is counted under its own label,
+#: and the tool event it leaves behind (so the scene belt stands down) is not read as the narrator's.
+PLAN_COMMIT_PREFIX = "plan-commit:"
+
+
 def classify_driver(tools_called: Any, belts_fired: Any) -> str:
-    """'narrator' (a game tool call only), 'belt' (a belt-committed change only), 'both', or 'none' (no engine change this turn)."""
+    """'narrator' (a game tool call only), 'belt' (a belt-committed change only), 'both', 'plan' (only commits from the plan), or 'none' (no engine change this turn).
+    A plan commit never counts as the narrator and never as a belt; beside a narrator call or a belt the turn keeps that label (the plan turn count is reported on its own)."""
     belts = {str(n): c for n, c in (belts_fired or {}).items()} if isinstance(belts_fired, dict) else {}
     belt_names = [n for n in belts if n.startswith(ENGINE_CHANGE_BELT_PREFIXES)]
+    plan_names = [n for n in belts if n.startswith(PLAN_COMMIT_PREFIX)]
     belt_ran = {t for b, t in _BELT_RUN_TOOLS.items() if any(n.startswith(b) for n in belt_names)}
+    plan_ran = {n[len(PLAN_COMMIT_PREFIX):] for n in plan_names}
     tools = [t for t in (tools_called or []) if isinstance(t, str)]
-    narrator = any(t in BUMPING_WRITES and t not in _NOT_A_NARRATOR_ACT and t not in belt_ran for t in tools)
+    narrator = any(t in BUMPING_WRITES and t not in _NOT_A_NARRATOR_ACT and t not in belt_ran and t not in plan_ran for t in tools)
     belt = bool(belt_names)
-    return "both" if narrator and belt else "narrator" if narrator else "belt" if belt else "none"
+    plan = bool(plan_names)
+    if belt and narrator:
+        return "both"
+    if narrator:
+        return "narrator"
+    if belt:
+        return "belt"  # a belt that fired is counted even beside a plan commit (the plan did not cover that change)
+    return "plan" if plan else "none"
 
 
 #: ORW-1014 (written definition, design doc 2026-11-13 "Revision 2026-11-28"): SCHEDULED ENGINE FLOW is a commit the show's own staged schedule makes, with no player act and no
@@ -245,6 +260,8 @@ _PARKED_BELTS: dict[str, dict[str, int]] = {}
 #: ORW-1014 metric gap (prod 2026-11-28: 26 player messages, 12 `driver=` lines): every player message is now accounted for. `_RECORDED` counts the rows `record_turn` wrote
 #: (the agent loop compares it across a turn to see a turn that never reached its row); `_CASTING_TURNS` counts the casting-interview messages (never game turns, never rowed).
 _RECORDED: dict[str, int] = {}
+#: ORW-1143: how many unledgered rows `record_unledgered_turn` wrote per user this process (a failed turn is accounted once, by whichever layer saw it first).
+_UNLEDGERED: dict[str, int] = {}
 _CASTING_TURNS: dict[str, int] = {}
 _PARKED_FORCED: dict[str, dict[str, dict[str, int]]] = {}
 
@@ -636,6 +653,15 @@ def recorded_count(user: str | None) -> int:
         return 0
 
 
+def unledgered_count(user: str | None) -> int:
+    """How many unledgered rows `record_unledgered_turn` wrote for the user this process. Never raises."""
+    try:
+        with _LOCK:
+            return _UNLEDGERED.get(_key(user), 0)
+    except Exception:  # pragma: no cover
+        return 0
+
+
 def record_unledgered_turn(user: str | None, *, session: Any = None, reason: str = "no-record") -> None:
     """ORW-1014 metric gap: a live-game turn that never reached `record_turn` (prod 2026-11-28 01:48Z: the act-first turn died with an UnboundLocalError, no `driver=` line, and its belts
     landed on the NEXT turn's row). Writes its own row so the turn is counted: `unledgered` names why (failed / closed / no-record), the buffered belts drain onto THIS row, and the
@@ -654,7 +680,10 @@ def record_unledgered_turn(user: str | None, *, session: Any = None, reason: str
         entry = _entry(session=session, turn_id=session, beat_seq_before=0, beat_seq_after=0, tools_called=tools, nudges_fired=0, auto_backfills=0,
                        desync_detected=False, stale_rejections=0, idempotency_hits=0, belts_fired=belts, forced_choice=forced)
         entry["unledgered"] = _clean_id(reason) or "no-record"
+        if entry["unledgered"] == "failed":
+            entry["drivenBy"] = "error"  # ORW-1143: a turn that died is its own driver, never read as narrator / belt / none
         with _LOCK:
+            _UNLEDGERED[k] = _UNLEDGERED.get(k, 0) + 1
             data = _load()
             bucket = data.get(k)
             bucket = bucket if isinstance(bucket, list) else []
@@ -825,8 +854,8 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
     k = _key(user)
     with _LOCK:
         bucket = _load().get(k)
-    split = {"narrator": 0, "belt": 0, "both": 0, "none": 0}
-    n = af = flow = unl = 0
+    split = {"narrator": 0, "belt": 0, "both": 0, "none": 0, "plan": 0}
+    n = af = flow = unl = pt = err = 0
     if isinstance(bucket, list):
         for e in bucket:
             if isinstance(e, dict):
@@ -835,14 +864,18 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
                     af += 1  # ORW-1014 PR 2: the act-first round committed an act this turn (counted as a tool call: the model made it)
                 if scheduled_flow_belts(e.get("beltsFired")):
                     flow += 1
+                if any(str(b).startswith(PLAN_COMMIT_PREFIX) for b in (e.get("beltsFired") or {})):
+                    pt += 1
                 if e.get("unledgered"):
                     unl += 1
+                if e.get("drivenBy") == "error":
+                    err += 1
                 split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
     nt = split["narrator"] + split["both"]
     bt = split["belt"] + split["both"]
     return {"turns": n, "narratorToolTurns": nt, "beltDrivenTurns": bt,
             "narratorOnly": split["narrator"], "beltOnly": split["belt"], "both": split["both"], "none": split["none"],
-            "actFirstTurns": af, "engineFlowTurns": flow, "unledgeredTurns": unl, "castingTurns": _CASTING_TURNS.get(k, 0), "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
+            "planOnly": split["plan"], "planCommitTurns": pt, "actFirstTurns": af, "engineFlowTurns": flow, "unledgeredTurns": unl, "errorTurns": err, "castingTurns": _CASTING_TURNS.get(k, 0), "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
 
 
 def _drain_pending_belts(user_key: str) -> dict[str, int]:

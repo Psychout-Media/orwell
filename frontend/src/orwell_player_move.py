@@ -93,6 +93,12 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
             from src import orwell_engine as engine  # type: ignore[no-redef]
         from routes import chat_helpers as _ch
         key = user or "default"
+        memo = af.take_retry_memo(key, text, client_msg_id)
+        if memo is not None:
+            # ORW-1143: the earlier turn committed, then died before its reply. Nothing is committed again; the narrator voices what already happened.
+            af.put_stash(key, {"outcome": "retry-after-failure", "text": "", "done": [], "pending": [], "blocked": [],
+                               "notes": list(memo.get("notes") or []) + ["The previous reply failed to reach the player. The change above is already in the game: voice it now, change nothing again."]})
+            return True
         state = await engine.get_game_state(user=user)
         if isinstance(state, dict) and state.get("started") is False:
             return False  # ORW-1014: the casting interview has no board to act on (prod 2026-11-28: 13 of 26 messages, two paid calls); the ordinary path runs as before
@@ -159,8 +165,14 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
                 r = await engine.resolve_player_move(f"I take a {kind_word}bed in {room_word}.", f"actfirst-bed:{msgid}:{len(done)}", user=user)
                 ok = isinstance(r, dict)
             elif tool == "search":
-                r = await engine.resolve_player_move(f"I look for {args['who']}.", f"actfirst-search:{msgid}", user=user)
-                ok = isinstance(r, dict) and bool(r.get("search") or r.get("playerMove"))
+                r = await engine.resolve_player_move(f"I look for {args['who']}.", f"actfirst-search:{msgid}", user=user, max_legs=af.SEARCH_MAX_LEGS)  # ORW-1135: capped legs
+                sr = r.get("search") if isinstance(r, dict) and isinstance(r.get("search"), dict) else None
+                ok = isinstance(r, dict) and bool(sr or r.get("playerMove"))
+                if sr is not None and sr.get("outcome") == "found" and not sr.get("legs"):
+                    # ORW-1136: the target is already in the player's room: a success, not a block; no walk, no clock spent
+                    notes.append(f"{args['who']} is right here in the player's current room: no walk was needed. Voice them present in this room; do not send them or the player anywhere.")
+                elif sr is not None and sr.get("outcome") == "stopped":
+                    notes.append(f"The player's search for {args['who']} ended early: {sr.get('reason') or 'it was capped'}. Voice only the legs the engine returned and where the player now stands.")
             if not ok:
                 blocked.append(act)
                 notes.append(f"The player's {tool} was BLOCKED by the game: voice that in the fiction.")
@@ -170,6 +182,8 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
         extra = {"previous_reply": previous_reply} if previous_reply else {}
         await engine.resolve_player_move(text, f"move:{client_msg_id}" if client_msg_id else None, user=user, skip=["move", "bed"], **extra)
         af.put_stash(key, {"outcome": outcome, "text": text, "done": done, "pending": pending, "blocked": blocked, "notes": notes})
+        if done:
+            af.put_commit_memo(key, client_msg_id, notes)
         return True
     except Exception as exc:
         try:

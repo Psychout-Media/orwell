@@ -879,6 +879,15 @@
   {
    "path": "frontend/src/orwell_facet_ledger.py",
    "kind": "list",
+   "name": "_MIXABLE",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "ORW-1127: the closed set of heritage look groups a mixed-heritage slot may draw two parents from; it mirrors the 0063 heritage grounding's groups (an engine taxonomy, not creative text), and each group's look ranges live in HERITAGE_LOOK",
+   "decision": "the heritage itself is dealt by the 0063 grounding from US-population weights; this list only names which groups combine, so no writer copies from it"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
    "name": "OUTLIER_VOCATIONS",
    "max": 1,
    "owner": "ORW-508",

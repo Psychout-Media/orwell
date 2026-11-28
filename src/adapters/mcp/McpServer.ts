@@ -250,6 +250,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "resolvePlayerMove":
       if (!isStr(args["text"])) refuse("text", "a non-empty string (the player's own message)");
       if (args["skip"] !== undefined && (!Array.isArray(args["skip"]) || !(args["skip"] as unknown[]).every((x) => x === "move" || x === "bed"))) refuse("skip", "an array of \"move\" and/or \"bed\" when present");
+      if (args["maxLegs"] !== undefined && (typeof args["maxLegs"] !== "number" || !Number.isInteger(args["maxLegs"]) || args["maxLegs"] < 1)) refuse("maxLegs", "a whole number of legs, at least 1, when present"); // ORW-1135
       guardSyncFields(true); // optional expectedBeatSeq + idempotencyKey
       return;
     case "noteMessage":
@@ -872,6 +873,7 @@ export class McpServer {
           ...(typeof args["expectedBeatSeq"] === "number" ? { expectedBeatSeq: args["expectedBeatSeq"] } : {}),
           ...(typeof args["idempotencyKey"] === "string" && args["idempotencyKey"] !== "" ? { idempotencyKey: args["idempotencyKey"] } : {}),
           ...(Array.isArray(args["skip"]) ? { skip: (args["skip"] as unknown[]).filter((x): x is "move" | "bed" => x === "move" || x === "bed") } : {}),
+          ...(typeof args["maxLegs"] === "number" ? { maxLegs: args["maxLegs"] } : {}),
         });
       case "moveHouseguest":
         // ADR 0009 — record a narrated NPC relocation (open-set; legal-only). Vault-free result.
@@ -892,8 +894,10 @@ export class McpServer {
         return this.deps.session.recordEpisodeTitles(args as unknown as RecordEpisodeTitlesReq);
       case "dayLedger":
         return this.deps.session.dayLedger();
-      case "dailyRecap":
-        return this.deps.session.dailyRecap();
+      case "dailyRecap": {
+        const rd = (args as { rebuildDay?: unknown } | undefined)?.rebuildDay; // ORW-1165: the ops re-issue reads a closed day rebuilt with the current digest (pure read)
+        return this.deps.session.dailyRecap(typeof rd === "number" && Number.isInteger(rd) && rd >= 1 ? { rebuildDay: rd } : undefined);
+      }
       case "hallOfFame":
         return this.deps.session.hallOfFame();
       case "seasonRetrospective":

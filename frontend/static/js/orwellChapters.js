@@ -278,3 +278,27 @@ export function weekChapterCardHtml(md, esc) {
   parts.push('</div>');
   return parts.join('');
 }
+
+const DAY_RECAP_KIND_LABEL = { arrival: 'Arrivals', toast: 'The toast', bed: 'Your bed', deal: 'Deals', alliance: 'Alliances', strategy: 'Game talk', bond: 'Closer', talk: 'Conversations', gossip: 'Whispers', clash: 'Clashes', betrayal: 'Betrayals', ceremony: 'The house', overheard: 'Overheard', house: 'Around the house', moment: 'The day', scene: 'The day' };
+
+/** ORW-1165: the "Day N in review" card (metadata {kind:'day-recap', day, recap:{digest:[{kind,text}], surfaced:[string], hook:string|null}}). Lines are grouped by kind; Vault-free strings only; `esc` escapes. */
+export function dayRecapCardHtml(md, esc) {
+  const e = typeof esc === 'function' ? esc : (x) => String(x);
+  const r = (md && md.recap) || {};
+  const digest = Array.isArray(r.digest) ? r.digest.filter((d) => d && typeof d.text === 'string' && d.text) : [];
+  const surfaced = Array.isArray(r.surfaced) ? r.surfaced.filter((x) => typeof x === 'string' && x) : [];
+  const parts = ['<div class="ow-day-recap"><div class="ow-day-recap-eyebrow">The day, as you drift off</div><div class="ow-day-recap-title">Day ' + e(String(md && md.day)) + ' in review</div>'];
+  const groups = [];
+  for (const d of digest) {
+    let g = groups.find((x) => x.kind === d.kind);
+    if (!g) { g = { kind: d.kind, lines: [] }; groups.push(g); }
+    g.lines.push(d.text);
+  }
+  for (const g of groups) {
+    parts.push('<div class="ow-day-recap-group"><div class="ow-day-recap-label">' + e(DAY_RECAP_KIND_LABEL[g.kind] || 'The day') + '</div><ul>' + g.lines.map((t) => '<li>' + e(t) + '</li>').join('') + '</ul></div>');
+  }
+  if (surfaced.length) parts.push('<div class="ow-day-recap-group"><div class="ow-day-recap-label">Word that reached you</div><ul>' + surfaced.map((t) => '<li>' + e(t) + '</li>').join('') + '</ul></div>');
+  if (typeof r.hook === 'string' && r.hook) parts.push('<div class="ow-day-recap-hook"><strong>Tomorrow:</strong> ' + e(r.hook) + '</div>');
+  parts.push('</div>');
+  return parts.join('');
+}

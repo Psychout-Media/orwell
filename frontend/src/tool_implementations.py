@@ -559,9 +559,10 @@ async def do_search_chats(query: str, limit: int = 20, owner: str | None = None)
     will only see legacy/null-owner rows.
     """
     try:
-        from src.session_search import search_session_messages
+        from src.session_search import current_season_only, search_session_messages
 
-        results = search_session_messages(query, limit=limit, owner=owner)
+        # ORW-1051: the narrator's chat search never returns a line from an earlier season of the same chat.
+        results = current_season_only(search_session_messages(query, limit=limit, owner=owner))
         if not results:
             return {"results": f"No chats found matching \"{query}\"."}
 

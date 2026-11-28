@@ -283,6 +283,50 @@ def _search_fts(
     return _rows_to_results(db, rows, query, context_messages)
 
 
+def current_season_only(results: list[SessionSearchResult], db=None) -> list[SessionSearchResult]:
+    """ORW-1051: drop the hits (and the neighbouring context lines) that sit above the newest `metadata.season_start` row of their own chat. A game
+    reset keeps the chat, so an earlier season's lines are still stored and searchable; the in-fiction narrator's search must not hand them back
+    as if they happened in this season. Chats with no season start pass through untouched."""
+    if not results:
+        return results
+    owns_db = db is None
+    if owns_db:
+        db = SessionLocal()
+    try:
+        cutoffs: dict[str, str] = {}
+        for sid in {r.session_id for r in results}:
+            row = (
+                db.query(DBChatMessage.timestamp)
+                .filter(DBChatMessage.session_id == sid, DBChatMessage.meta_data.like('%"season_start": true%'))
+                .order_by(DBChatMessage.timestamp.desc())
+                .first()
+            )
+            if row and row[0]:
+                cutoffs[sid] = _iso(row[0]) or ""
+    except Exception as e:  # failsoft-ok: the search still answers; the narrator's own window is the real wall
+        logger.debug("season-start cutoff lookup failed: %s", e)
+        return results
+    finally:
+        if owns_db:
+            db.close()
+    if not cutoffs:
+        return results
+    kept: list[SessionSearchResult] = []
+    for r in results:
+        cut = cutoffs.get(r.session_id)
+        if cut and (r.timestamp or "") < cut:
+            continue
+        if cut:
+            r = SessionSearchResult(
+                message_id=r.message_id, session_id=r.session_id, session_name=r.session_name, role=r.role,
+                content=r.content, content_snippet=r.content_snippet, timestamp=r.timestamp,
+                context_before=[c for c in r.context_before if (c.get("timestamp") or "") >= cut],
+                context_after=r.context_after,
+            )
+        kept.append(r)
+    return kept
+
+
 def search_session_messages(
     query: str,
     limit: int = 20,

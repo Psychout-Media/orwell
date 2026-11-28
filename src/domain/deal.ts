@@ -49,6 +49,8 @@ export interface DealCondition {
   promisors: readonly EntityId[];
   /** ORW-1053: further houseguests the same promise covers ("if Valentina or Robert goes up, vote to keep them"). Absent on every older deal. */
   alsoProtect?: readonly EntityId[];
+  /** ORW-1053: houseguests the terms promise to VOTE OUT ("we both vote Lorenzo out"). Graded on the promiser's own ballot: voting one of them (when on the ballot) keeps it, voting another breaks it. Absent on every older deal. */
+  evict?: readonly EntityId[];
 }
 
 export interface Deal {
@@ -171,20 +173,24 @@ const ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
  * Build the condition for a freshly-made deal. `safety` / `vote` / `final-two` bind BOTH parties not
  * to move against the other; `target-other` binds only the promisor (`parties[0]`) to spare `parties[1]`.
  */
-export function conditionFor(kind: DealKind, parties: [EntityId, EntityId], third?: EntityId, moreThirds?: readonly EntityId[]): DealCondition {
+export function conditionFor(kind: DealKind, parties: [EntityId, EntityId], third?: EntityId, moreThirds?: readonly EntityId[], evict?: readonly EntityId[]): DealCondition {
+  const withEvict = (c: DealCondition): DealCondition => {
+    const e = (evict ?? []).filter((t) => !parties.includes(t));
+    return e.length > 0 && (kind === "vote" || kind === "safety" || kind === "conditional" || kind === "target-other") ? { ...c, evict: e } : c;
+  };
   const [a, b] = parties;
   // ORW-1053: a mutual vote / safety / conditional promise whose terms name houseguests outside the pair protects THEM (the named thirds), and still binds both parties. Without this the promise
   // was filed against the partner and a promiser's ballot against the named houseguest broke nothing (the deal stayed open and was graded kept).
   if (third !== undefined && (kind === "vote" || kind === "safety" || kind === "conditional")) {
     const more = (moreThirds ?? []).filter((t) => t !== third && !parties.includes(t));
-    return { protect: third, promisors: [a, b], ...(more.length > 0 ? { alsoProtect: more } : {}) };
+    return withEvict({ protect: third, promisors: [a, b], ...(more.length > 0 ? { alsoProtect: more } : {}) });
   }
   // 0142 idea 3: `protect-third` - the promisor (`a`) swears not to move against a THIRD houseguest (`third`); `b` is who asked. Same one-way break rule as target-other, protecting `third`.
   if (kind === "protect-third" && third !== undefined) return { protect: third, promisors: [a] };
   // One-way bindings: `target-other` + the 0121 active kinds bind only the promisor (`a`) toward `b`.
-  if (kind === "target-other" || kind === "comp-throw" || kind === "veto-save" || kind === "information") return { protect: b, promisors: [a] };
+  if (kind === "target-other" || kind === "comp-throw" || kind === "veto-save" || kind === "information") return withEvict({ protect: b, promisors: [a] });
   // safety / vote / final-two are mutual: neither party may move against the other.
-  return { protect: b, promisors: [a, b] };
+  return withEvict({ protect: b, promisors: [a, b] });
 }
 
 /**
@@ -219,6 +225,8 @@ export function actionBreaks(deal: Deal, action: BindingAction): boolean {
   if (deal.kind === "conditional" && action.kind !== "vote-evict") return false;
   const c = deal.condition;
   if (!c.promisors.includes(action.actor)) return false;
+  // ORW-1053: a promise to vote someone out is graded on the ballot itself: the promiser voted another nominee when the promised one was on the ballot.
+  if (action.kind === "vote-evict" && liveEvict(deal, action).length > 0 && !action.targets.some((t) => liveEvict(deal, action).includes(t))) return true;
   // The protected party was targeted — OR, for a mutual deal, either party was targeted by the other.
   if (action.targets.includes(c.protect) && action.actor !== c.protect) return true;
   if ((c.alsoProtect ?? []).some((t) => action.targets.includes(t) && action.actor !== t)) return true;
@@ -249,8 +257,21 @@ export function actionHonors(deal: Deal, action: BindingAction): boolean {
   if (deal.kind === "information") return false;
   if (!ADVERSE.has(action.kind)) return false;
   if (deal.kind === "conditional" && action.kind !== "vote-evict") return false; // 0142: only the vote can honor a conditional promise
-  if (!deal.condition.promisors.includes(action.actor)) return false;
+  const c = deal.condition;
+  if (!c.promisors.includes(action.actor)) return false;
+  // ORW-1053: a promise to vote someone out is honored by voting them out.
+  const ev = action.kind === "vote-evict" ? liveEvict(deal, action) : [];
+  if (ev.length > 0) return action.targets.some((t) => ev.includes(t));
   const other = deal.parties.find((p) => p !== action.actor);
-  if (!other || action.targets.length === 0 || action.targets.includes(other)) return false;
-  return action.alternatives ? action.alternatives.includes(other) : true;
+  // ORW-1053: when the promise protects houseguests OUTSIDE the pair, they (not the partner) are who the actor must pointedly spare; the partner is still not to be targeted in a mutual deal.
+  const thirds = deal.parties.includes(c.protect) ? [] : [c.protect, ...(c.alsoProtect ?? [])].filter((t) => t !== action.actor);
+  const refs = thirds.length > 0 ? thirds : other ? [other] : [];
+  if (refs.length === 0 || action.targets.length === 0 || action.targets.some((t) => refs.includes(t))) return false;
+  if (thirds.length > 0 && c.promisors.length > 1 && other && action.targets.includes(other)) return false;
+  return action.alternatives ? refs.some((r) => action.alternatives!.includes(r)) : true;
+}
+
+/** ORW-1053: the promised-evict houseguests that were really on this ballot (no promise to vote someone out binds when they are not a choice, or when the actor is that someone). */
+function liveEvict(deal: Deal, action: BindingAction): readonly EntityId[] {
+  return (deal.condition.evict ?? []).filter((t) => t !== action.actor && (action.alternatives ? action.alternatives.includes(t) : true));
 }

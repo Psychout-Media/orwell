@@ -60,3 +60,10 @@ def test_not_used_wrong_and_right():
 
 def test_replacement_named_wrongly_is_caught():
     assert pc.veto_decision_conflict("Roman Hardwick names Eva McDonald as the replacement.", SAVED_NOMINEE)
+
+
+def test_correction_names_self_save_and_the_final_block():
+    cer = _cer(True, "Lesly Fisk", "Jordan Reyes", nominees=("Eva McDonald", "Jordan Reyes"))
+    line = pc._correction_line(pc.Conflict(pc.FACT_VETO, pc._veto_correction_detail(cer)))
+    assert "Lesly Fisk used it on themselves" in line and "saved themself and nobody else" in line
+    assert "the two on the block are Eva McDonald and Jordan Reyes" in line
