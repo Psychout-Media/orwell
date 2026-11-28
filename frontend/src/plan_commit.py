@@ -12,6 +12,13 @@ ADR 0009 (a planned move is a thin, DIRECTION-NEUTRAL commit: validated for plau
 moves must be narrated a certain way); the consequence-loop ruling (the front end makes the call the narrator would skip, and never writes the player's choice or the
 scene); the belt ruling (belts stay as a counted fallback).
 
+ORW-1200 (the player's own social acts, the same bar as the scene): the plan may also name the ONE houseguest the player presses to open up (`press`) and the player's own explicit
+promise (`pledge`). A press is committed through the engine's `confide` (the engine alone decides whether, how much and what they disclose; whether it is true never reaches
+the narrator, ORW-584) only when the player's words carry the confide belt's own press language, the press is the one-person scene, and that houseguest is the only one in
+earshot (or the private-talk lock is with them). A pledge rides the scene record through the ORW-860 belt's own validators (a first-person commitment in the player's words,
+the closed assurance / promise sets, ORW-1069 polarity and firmness) and only to people in earshot. Never a deal or an alliance (ORW-1156: only the player's yes commits those),
+and never a houseguest's promise (that is decided in the narration; the voiced-promise belt keeps it). The auto-confide and auto-record-promise belts stand down for what landed.
+
 TODO (ADR 0009, Kevin 11-27 22:10 MST: houseguest location is bidirectional, story and engine moves write one occupancy record under the same plausibility rules): the
 move guards below (the houseguest and the room must be named in the player's own words) only describe what a PLAYER message can plainly direct. They are not a rule
 about who may move people; engine-originated moves do not pass through this module at all.
@@ -23,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import json
 import logging
 import os
 import re
@@ -61,7 +69,7 @@ def _timeout_s() -> float:
 # ── stats ──────────────────────────────────────────────────────────────────────────────────────
 _LOCK = threading.Lock()
 _LAT: collections.deque = collections.deque(maxlen=500)
-_COUNTS = {"calls": 0, "committed": 0, "empty": 0, "skipped": 0, "errors": 0, "timeouts": 0, "unparsed": 0}
+_COUNTS = {"calls": 0, "committed": 0, "empty": 0, "skipped": 0, "errors": 0, "timeouts": 0, "unparsed": 0, "press": 0, "pledge": 0, "confided": 0}
 
 
 def bump(k: str) -> None:
@@ -253,17 +261,26 @@ def resolve_partner(view: dict, text: str) -> tuple:
 SYSTEM = (
     "You plan what the game records for ONE player message, before any story is written. Reply with ONLY one JSON object, no analysis, no prose, no code fence:\n"
     '{"act":"<talk|ooc|other>","scene":null,'
-    '"moves":[]}\n'
+    '"moves":[],"press":null,"pledge":null}\n'
     "or, when there is something to record:\n"
     '{"act":"talk","scene":{"withIds":[<ids of houseguests from PRESENT, copied exactly as listed>],"kind":"<bonding|betrayal|conflict|strategy|alliance|gossip|showmance>",'
     '"content":"<one past-tense sentence of what the PLAYER said or did toward them>","feltMinutes":<minutes the exchange takes in the house: a quick word 15 to 30, an ordinary chat 45 to 90, a long summit 120 to 240>},'
-    '"moves":[{"id":"<houseguest id>","room":"<room id>"}]}\n'
+    '"moves":[{"id":"<houseguest id>","room":"<room id>"}],"press":"<houseguest id or null>","pledge":<null or one pledge object>}\n'
     "Rules. A scene is only for the player's in-fiction words or actions aimed at houseguests who are PRESENT. withIds are the houseguests the player addresses or acts "
     "toward: named in the message, or plainly meant when exactly one houseguest is present. content states ONLY what the player said or did. Never write a houseguest's "
     "reply, feeling, decision or reaction, and never the outcome of a competition, vote, nomination, veto or eviction. A question for the production, a message in "
     "brackets or double parentheses, a message that only moves the player, or one that only asks the game to continue: scene null. "
     "moves lists ONLY a houseguest from PRESENT whom the player's words name and tell, ask or invite to go to a named room, meaning that houseguest goes there; never the "
-    "player's own move; empty otherwise. When unsure, scene null and moves empty."
+    "player's own move; empty otherwise. "
+    "press is the id of the ONE houseguest from PRESENT whom the player's own words urge to open up, be honest with them or tell them what is really going on, in a moment "
+    "with just that houseguest; null for small talk, strategy, a group, only listening, a demand for an answer, an accusation, or an interrogation about a vote, a "
+    "nomination or a lie. "
+    'pledge is the player\'s OWN explicit promise to the houseguests in the scene, or null. Either {"assurance":{"kind":"<safe|vote|loyal>"}} for a cheap explicit promise '
+    "(safe: they are safe with the player; vote: the player's vote to keep them; loyal: the player is with them), or "
+    '{"promise":{"what":"<no-nominate|no-evict-vote|use-veto-on|not-use-veto-on|final-two>","subject":"<id it concerns, left out when it is the one spoken to>"}} '
+    "for a promise about what the player will or will not do on the board. Never a promise to vote someone out, never a conditional, hedged or attempted promise, never a "
+    "hope, a joke, a question, a threat, a deal or an alliance, and never a houseguest's promise. "
+    "When unsure, scene null, moves empty, press null and pledge null."
 )
 
 
@@ -406,7 +423,96 @@ def validate(obj: dict, text: str, view: dict) -> dict:
                          "content": (e.get("content") or "").strip() or "The player spoke with a houseguest.", "feltMinutes": felt}
         elif e.get("type") == "move":
             out_moves.append((e["who"], e["room"]))
-    return {"scene": out_scene, "moves": out_moves, "codes": codes}
+    press = pledge = None
+    if out_scene and act == "talk":
+        press = _press(obj.get("press"), text, view, out_scene["withIds"], awake, known, codes)
+        pledge = _pledge(obj.get("pledge"), text, view, out_scene["withIds"], known, named, codes)
+        if pledge:
+            out_scene["pledge"] = pledge
+    return {"scene": out_scene, "moves": out_moves, "codes": codes, "confide": press, "pledge": pledge}
+
+
+# ── ORW-1200: the player's own press to open up, and the player's own promise ───────────────────
+def _earshot_out(view: dict) -> set:
+    return {i for i in (view.get("earshot_out") or []) if isinstance(i, str)}
+
+
+def _press_words(text: str) -> bool:
+    """The auto-confide belt's own press language over the player's words (the same bar: C3 never commits a press the belt would not consider)."""
+    from src.agent_loop import _CONFIDE_PRESS_RE
+    return bool(_CONFIDE_PRESS_RE.search(text or ""))
+
+
+def _press(raw: Any, text: str, view: dict, scene_ids: list, awake: list, known: set, codes: list) -> Optional[str]:
+    """The houseguest the player presses to open up, or None. Trim only: the plan's id must be the one-person scene, awake, in earshot, the only one who hears it (or the
+    private-talk lock is with them), and the player's own words must carry press language. The engine's motive gate then decides the disclosure."""
+    if raw in (None, "", False):
+        return None
+    pid = _canon(raw, known)
+    if not pid:
+        codes.append("press-unknown-id")
+        return None
+    if not _press_words(text):
+        codes.append("press-no-press-words")
+        return None
+    if list(scene_ids or []) != [pid]:
+        codes.append("press-not-the-scene")
+        return None
+    out = _earshot_out(view)
+    if pid not in awake or pid in out:
+        codes.append("press-not-in-earshot")
+        return None
+    hears = [a for a in awake if a not in out]
+    if hears != [pid] and view.get("lock") != pid:
+        codes.append("press-not-one-on-one")
+        return None
+    return pid
+
+
+def _pledge(raw: Any, text: str, view: dict, scene_ids: list, known: set, named: list, codes: list) -> Optional[dict]:
+    """The player's own promise or assurance to the scene's houseguests, or None, through the ORW-860 belt's own validators. The promiser is always the player (never read
+    from the plan); a subject must be named in the player's words or be one spoken to; every listener must be in earshot; ORW-1069 polarity and firmness are read from the words."""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    from src import agent_loop as al
+    ids = list(scene_ids or [])
+    if not ids:
+        return None
+    if not al._player_message_commits(text):
+        codes.append("pledge-no-commit-words")
+        return None
+    if any(i in _earshot_out(view) for i in ids):
+        codes.append("pledge-out-of-earshot")
+        return None
+    a_raw, p_raw = raw.get("assurance"), raw.get("promise")
+    for part in (raw, a_raw, p_raw):
+        if isinstance(part, dict) and part.get("by", part.get("from")) not in (None, "", "player"):
+            codes.append("pledge-not-the-player")  # a houseguest's promise is decided in the narration (the voiced-promise belt), never committed here
+            return None
+    assurance = al._validate_assurance({"kind": a_raw.get("kind")}, ids) if isinstance(a_raw, dict) else None
+    promise = None
+    if isinstance(p_raw, dict):
+        subj = p_raw.get("subject")
+        if subj not in (None, "", "player"):
+            subj = _canon(subj, known)
+            if not subj:
+                codes.append("pledge-subject-unknown")  # dropped, never coerced to the one spoken to
+                return None
+        if subj not in (None, "") and subj != "player" and subj not in ids and subj not in named:
+            codes.append("pledge-subject-not-named")
+            return None
+        promise = al._validate_promise({"what": p_raw.get("what"), "subject": subj}, ids, known)
+    if assurance and promise:
+        assurance = None  # one proposal per scene: the typed promise writes the matching assurance row itself (the ORW-860 rule)
+    if not assurance and not promise:
+        codes.append("pledge-invalid")
+        return None
+    vote = bool((assurance and assurance.get("kind") == "vote") or (promise and promise.get("what") == "no-evict-vote"))
+    unfit = al._promise_words_unfit(text, "vote" if vote else "loyal")
+    if unfit:
+        codes.append("pledge-" + unfit)
+        return None
+    return {"assurance": assurance} if assurance else {"promise": promise}
 
 
 def prefilter(text: Any, view: dict) -> Optional[str]:
@@ -456,6 +562,10 @@ async def decide(text: str, view: dict, *, call: Callable[..., Awaitable[str]], 
         return {"scene": None, "moves": [], "codes": [], "outcome": "error", "latencyMs": ms}
     committed = bool(v["scene"] or v["moves"])
     bump("committed" if committed else "empty")
+    if v.get("confide"):
+        bump("press")
+    if v.get("pledge"):
+        bump("pledge")
     return {**v, "outcome": "committed" if committed else "empty", "latencyMs": ms}
 
 
@@ -490,7 +600,8 @@ async def commit_before_narrator(text: Any, user: Optional[str], *, sess: Any = 
                 "lock": ((wa.get("privateTalk") or {}).get("with") or {}).get("id") if isinstance(wa.get("privateTalk"), dict) else None,
                 "talk_ask": ((state.get("openTalkAsk") or {}).get("from") or {}).get("id") if isinstance(state.get("openTalkAsk"), dict) else None,
                 "last_partner": last_partner(user, wa.get("room")), "last_speaker": last_speaker(previous_reply, people),
-                "pending": ((pend.get("kind") or pend.get("type") or "pending") if isinstance(pend, dict) and pend else None)}
+                "pending": ((pend.get("kind") or pend.get("type") or "pending") if isinstance(pend, dict) and pend else None),
+                "earshot_out": sorted({p.get("id") for p in (wa.get("present") or []) if isinstance(p, dict) and p.get("outOfEarshot") and isinstance(p.get("id"), str)})}
         if call is None:
             from src.llm_core import llm_call_async
             from src.endpoint_resolver import resolve_session_headers
@@ -501,7 +612,8 @@ async def commit_before_narrator(text: Any, user: Optional[str], *, sess: Any = 
             async def call(**kw):  # noqa: E306
                 return await llm_call_async(url=url, model=model, headers=hdrs, call_class="utility-extraction", user=user, **kw)
         d = await decide(text, view, call=call, fence=_EXTRACTION_UNTRUSTED_FENCE)
-        logger.info("[orwell] plan-commit outcome=%s ms=%.0f scene=%s moves=%d codes=%s user=%s", d["outcome"], d["latencyMs"], bool(d["scene"]), len(d["moves"]), d["codes"], user)
+        logger.info("[orwell] plan-commit outcome=%s ms=%.0f scene=%s moves=%d press=%s pledge=%s codes=%s user=%s", d["outcome"], d["latencyMs"], bool(d["scene"]), len(d["moves"]),
+                    bool(d.get("confide")), bool(d.get("pledge")), d["codes"], user)
         if not d["scene"] and not d["moves"]:
             return False
         done = []
@@ -519,7 +631,8 @@ async def commit_before_narrator(text: Any, user: Optional[str], *, sess: Any = 
                     pass
         if d["scene"]:
             remember_partner(user, wa.get("room"), d["scene"]["withIds"])
-        put_stash(user, {"scene": d["scene"], "moves": done, "names": nm, "outcome": d["outcome"]})
+        conf = await commit_confide(engine, user, d.get("confide"), text) if d.get("confide") else None
+        put_stash(user, {"scene": d["scene"], "moves": done, "names": nm, "outcome": d["outcome"], "confide": conf})
         return bool(d["scene"] or done)
     except Exception as exc:
         try:
@@ -528,6 +641,65 @@ async def commit_before_narrator(text: Any, user: Optional[str], *, sess: Any = 
         except Exception:  # failsoft-ok: the recorder itself is down
             logger.warning("[orwell] plan-commit slot failed (fail-soft): %s", exc)
         return False
+
+
+# ── ORW-1200: the press commit, at most once per message ──────────────────────────────────────
+_CONFIDE_MEMO: dict = {}
+_CONFIDE_MEMO_TTL_S = 1800.0
+
+
+def _confide_sig(text: Any, npc: str) -> str:
+    import hashlib
+    return hashlib.sha256((" ".join(str(text or "").split()).lower() + "\x00" + npc).encode("utf-8")).hexdigest()
+
+
+def reset_confide_memo() -> None:
+    with _LOCK:
+        _CONFIDE_MEMO.clear()
+
+
+def _player_confide_result(npc: str, res: Any) -> Optional[dict]:
+    """What the player channel may carry of a confide (the McpServer `playerConfideResult` shape): whether they opened up, how much, what was said. Never whether it was
+    true (ORW-584). None for a refusal or an odd shape."""
+    if not isinstance(res, dict) or res.get("error") or res.get("refused"):
+        return None
+    if not isinstance(res.get("disclosed"), bool):
+        return None
+    out = {"id": npc, "disclosed": res["disclosed"]}
+    if isinstance(res.get("tier"), str):
+        out["tier"] = res["tier"]
+    if res["disclosed"] and isinstance(res.get("content"), str) and res["content"].strip():
+        out["content"] = res["content"].strip()[:600]
+    return out
+
+
+async def commit_confide(engine: Any, user: Optional[str], npc: str, text: Any) -> Optional[dict]:
+    """Run the engine's `confide` for the player's press (the engine decides everything). The same message re-sent within the memo window reuses the first result and never
+    confides twice. Returns the player-channel result, or None (nothing landed: the auto-confide belt stays armed). Never raises."""
+    sig = _confide_sig(text, npc)
+    now = time.monotonic()
+    with _LOCK:
+        m = _CONFIDE_MEMO.get(user or "default")
+    if m and m.get("sig") == sig and now - m.get("at", 0) <= _CONFIDE_MEMO_TTL_S:
+        return m.get("res")
+    try:
+        from routes import chat_helpers as _ch
+        res = await engine.confide(npc, user=user, idempotency_key=_ch._mint_idempotency_key())
+    except Exception as e:  # failsoft-ok: plan-commit-fail-soft - the engine said no; the confide belt stays armed
+        logger.warning("[orwell] plan-commit confide failed: %s", type(e).__name__)
+        return None
+    out = _player_confide_result(npc, res)
+    if out is None:
+        return None
+    bump("confided")
+    try:
+        from routes import chat_helpers as _ch
+        _ch._refresh_beat_seq(user, res)
+    except Exception:  # failsoft-ok: telemetry-only
+        pass
+    with _LOCK:
+        _CONFIDE_MEMO[user or "default"] = {"sig": sig, "res": out, "at": now}
+    return out
 
 
 # ── the loop half (agent_loop, after the turn-start settle) ───────────────────────────────────
@@ -539,16 +711,34 @@ def loop_half(owner, session_id, tool_events: list, round_num: int, note_belt: C
         return None
     lines = []
     scene = st.get("scene")
+    nm = st.get("names") or {}
     if scene and session_id:
         from routes import chat_helpers as _ch
         from src import fold_ledger as _fl
+        pledge = scene.get("pledge") if isinstance(scene.get("pledge"), dict) else {}
         _fl.stage_pending_fold(owner, session_id, content=scene["content"][:400], with_ids=scene["withIds"], kind=scene["kind"], consequence=None,
-                               felt_minutes=scene.get("feltMinutes"), idempotency_key=_ch._mint_idempotency_key())
-        tool_events.append({"round": round_num, "tool": "recordInteraction", "command": "", "output": "", "exit_code": 0})
+                               felt_minutes=scene.get("feltMinutes"), idempotency_key=_ch._mint_idempotency_key(),
+                               assurance=pledge.get("assurance"), promise=pledge.get("promise"))
+        # ORW-1200: the event carries the pledge, so the ORW-860 promise back-fill (`_model_recorded_a_promise`) sees it was recorded and stands down
+        cmd = json.dumps({"withIds": scene["withIds"], **{k: v for k, v in pledge.items() if k in ("assurance", "promise") and v}}) if pledge else ""
+        tool_events.append({"round": round_num, "tool": "recordInteraction", "command": cmd, "output": "", "exit_code": 0})
         note_belt(owner, BELT_PREFIX + "recordInteraction")
-        nm = st.get("names") or {}
         lines.append("The game ALREADY recorded this scene as the player's own act with " + ", ".join(nm.get(i, "a houseguest") for i in scene["withIds"])
                      + ": do not call recordInteraction for it again; voice the scene.")
+        if pledge:
+            lines.append("The player's own promise in it is recorded as the player said it: voice it as said, never firmer or wider.")
+    conf = st.get("confide")
+    if isinstance(conf, dict) and conf.get("id"):
+        who = nm.get(conf["id"], "The houseguest")
+        tool_events.append({"round": round_num, "tool": "confide", "command": json.dumps({"npcId": conf["id"]}), "output": "", "exit_code": 0})
+        note_belt(owner, BELT_PREFIX + "confide")
+        if conf.get("disclosed") and conf.get("content"):
+            lines.append(f"The game ALREADY ran confide for the player's press: {who} opened up ({conf.get('tier') or 'a little'}) and told the player this: {conf['content']} "
+                         "Voice exactly that, nothing more; do not call confide again.")
+        elif conf.get("disclosed"):
+            lines.append(f"The game ALREADY ran confide for the player's press: {who} opened up a little but named nothing new. Voice that; do not call confide again.")
+        else:
+            lines.append(f"The game ALREADY ran confide for the player's press: {who} did not open up this time. Voice them holding back; do not call confide again.")
     for hid, room in st.get("moves") or []:
         note_belt(owner, BELT_PREFIX + "moveHouseguest")
         lines.append(f"{(st.get('names') or {}).get(hid, 'A houseguest')} is NOW in {room.replace('-', ' ')} on the board: voice that.")
