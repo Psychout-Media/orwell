@@ -4369,6 +4369,8 @@ def _npc_move_instructions(room_names=None) -> str:
         "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
         "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"couch\" → living-room, "
         "\"games room\" → lounge, \"hall\" → hallway, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
+        "A houseguest who speaks or acts in the room AFTER the exit did not leave; when the exit names nobody "
+        "(\"she slips out\"), it is the room's one houseguest who neither speaks nor is named in the scene. "
         'If no houseguest clearly moved, reply {"moves":[]}.'
         + _themed_rooms_note(room_names)
     )
@@ -4392,6 +4394,44 @@ async def _move_npc_extract(narration, last_user, house, endpoint_url, model, he
                                temperature=0.1, max_tokens=1500, timeout=45,
                                call_class="utility-extraction", user=_meter_user(owner))
     return raw or ""
+
+
+_EXIT_LINE_RE = re.compile(
+    r"\b(?:slips?|steps?|walks?|heads?|goes|went|wanders?|ducks?|leaves?|left|pads?|hurries|hurried|excuses)\b[^.]{0,40}\b(?:out|off|away|into|to|toward|down|upstairs|downstairs)\b", re.IGNORECASE)
+_SPEAKER_TAG_RE = re.compile(r"^\s*@\[([^\]]+)\]", re.MULTILINE)
+
+
+def _reconcile_unnamed_exit(narration, picks, present_ids, roster_names):
+    """ORW-1149: the extractor resolves an UNNAMED exit ("She slips out into the hall...") by guessing, and
+    it can pick a houseguest who then keeps talking in the same room (live 11-28: the engine moved the
+    wrong person, the next prompt contradicted the prose). A pick whose houseguest SPEAKS in a paragraph
+    after an untagged exit line did not leave: re-point it to the room's one houseguest who neither
+    speaks nor is named anywhere in the narration (elimination), else drop it. Returns the picks list."""
+    paras = [p for p in re.split(r"\n\s*\n", narration or "") if p.strip()]
+    exit_idx = next((i for i, p in enumerate(paras)
+                     if not _SPEAKER_TAG_RE.match(p) and _EXIT_LINE_RE.search(p)), None)
+    if exit_idx is None:
+        return picks
+    text = narration or ""
+    after = {m.group(1).strip().lower() for p in paras[exit_idx + 1:] for m in _SPEAKER_TAG_RE.finditer(p)}
+    tagged = {m.group(1).strip().lower() for m in _SPEAKER_TAG_RE.finditer(text)}
+
+    def _named(name):
+        nm = (name or "").lower()
+        return bool(nm) and (nm in text.lower() or re.search(rf"\b{re.escape(nm.split()[0])}\b", text.lower()) is not None)
+
+    unseen = [h for h in present_ids if (roster_names.get(h) or "").lower() not in tagged and not _named(roster_names.get(h))]
+    out = []
+    for hid, room in picks:
+        if (roster_names.get(hid) or "").lower() in after:
+            if len(unseen) == 1 and unseen[0] not in {h for h, _ in picks}:
+                logger.info(f"[orwell] auto-move-npc: {hid} speaks after the exit; re-pointed the unnamed exit to {unseen[0]}")
+                out.append((unseen[0], room))
+            else:
+                logger.info(f"[orwell] auto-move-npc: dropped {hid}, who speaks after the narrated exit")
+            continue
+        out.append((hid, room))
+    return out
 
 
 async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner, raw=None) -> int:
@@ -4457,6 +4497,9 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             if isinstance(_w, dict):
                 _pre_present = {p.get("id") for p in (_w.get("present") or []) if isinstance(p, dict) and p.get("id")}
             _proom = _w.get("room") if isinstance(_w, dict) else None
+            picks = _reconcile_unnamed_exit(narration, picks, sorted(h for h in _pre_present if h), _roster_names)  # ORW-1149
+            if not picks:
+                return 0
             if _proom:
                 _kept = []
                 for hid, room in picks:
@@ -4478,6 +4521,14 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                 res = await _oe.move_houseguest(hid, room, user=owner)
                 # The engine is the authority: count only an APPLIED move ("moved"); "noop"/"illegal"
                 # are legitimate (already there / not a legal move) and simply don't count.
+                if isinstance(res, dict) and res.get("status") == "illegal" and _ch is not None:
+                    # ORW-1149 (ADR 0009): the engine refused a move the prose made - correct the narration next turn, never leave it silently contradicted.
+                    try:
+                        _ch._reground_enqueue(_ch._desync_key(owner), (
+                            f"RE-GROUND ON WHO LEFT - last turn's narration sent {_roster_names.get(hid) or 'a houseguest'} out of the room, but the engine did not "
+                            "make that move. Re-read `whereabouts` and keep them where the engine has them (or have the move made); do not narrate them gone."))
+                    except Exception as _fs_exc:
+                        _failsoft_note("agent_loop:_auto_move_npc:4", _fs_exc)
                 if isinstance(res, dict) and res.get("status") == "moved":
                     recorded += 1
                     if hid in _pre_present:
