@@ -291,7 +291,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       return;
     case "joinAlliance": // 0107 Phase B
       guardSyncFields(false);
-      if (!isStr(args["allianceId"])) refuse("allianceId", "an alliance id (string)");
+      if (!isStr(args["allianceId"]) && !isStr(args["inviter"])) refuse("allianceId", "an alliance id (string), or `inviter` (the houseguest id who invited the player)");
       if (args["name"] !== undefined && !isStr(args["name"])) refuse("name", "a name (string) or omitted"); // ORW-509
       return;
     case "confide":

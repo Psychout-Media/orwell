@@ -1779,6 +1779,11 @@ _SEARCH_SWEEP_RE = re.compile(
     r"|\bwhere\s+(?:is|are|'s|’s)\s+(?:everybody|everyone|anybody|anyone|everyone\s+else|the\s+(?:others|rest))\b|\bwhere\s+(?:did|has|have)\s+(?:everybody|everyone|they|he|she|the\s+(?:others|rest))\b",
     re.IGNORECASE)
 _SEARCH_WHERE_RE = re.compile(r"\bwhere(?:\s+is|\s+are|\s+was|'s|’s)\s+(?!the\s+\w+\s+room\b|the\s+(?:kitchen|bathroom|backyard|yard|hallway|lounge)\b)\w+", re.IGNORECASE)
+# ORW-1183: "where did Kai go" / "where'd Kai go" / "where Kai went" / "where has Kai gone" is the same question as "where is Kai": read the engine's whereabouts before the narrator answers.
+_SEARCH_WENT_RE = re.compile(
+    r"\bwhere(?:\s+(?:did|does|do|has|have)\s+|'d\s+|’d\s+)(?!everyone\b|everybody\b|they\b|the\s+(?:others|rest)\b)\w+(?:\s+\w+)?\s+(?:go|went|gone|get\s+to|head|run\s+off|disappear|vanish|wander)\b|"
+    r"(?:^|[.!?]\s+|\b(?:know|wonder|idea|see|figure|find\s+out|tell\s+me)\s+)where\s+(?!everyone\b|everybody\b|i\b|you\b|we\b|the\s+(?:others|rest)\b)\w+\s+(?:went|has\s+gone|had\s+gone|disappeared|vanished)\b",
+    re.IGNORECASE)
 _SEARCH_FIND_RE = re.compile(r"\b(?:(?:look(?:ing|ed)?|search(?:ing|ed)?|hunt(?:ing)?|scout(?:ing)?|go\s+(?:look|find)|check(?:ing)?)\s+for|(?:find|locate|track\s+down)(?!\s+out\b))\s+(?!a\b|an\b|some\b|the\s+(?:exit|door)\b)\w+", re.IGNORECASE)
 
 
@@ -1787,7 +1792,7 @@ def _is_house_search(msg) -> bool:
     if not isinstance(msg, str) or not msg.strip():
         return False
     text = re.sub(r"\(\([^)]*\)\)", " ", msg, flags=re.DOTALL)
-    return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_FIND_RE.search(text))
+    return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_WENT_RE.search(text) or _SEARCH_FIND_RE.search(text))
 
 
 # Given names that are also everyday words or months (same list as src/engine/diversity.ts COMMON_WORD_NAMES): only the capitalised form is the name.
@@ -1870,6 +1875,8 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
         lines.append("- Rooms IN VIEW with awake houseguests: " + "; ".join(
             f"{room_ref(r['room'], names, article=False)}{' (door closed)' if r.get('access') == 'closed' else ''}: "
             + ", ".join(str(p.get('name')) for p in r['present'] if isinstance(p, dict) and p.get('name')) for r in rooms) + ". Rooms out of view are not known: never say an out-of-view room is empty or name who is in it.")
+    if named and _SEARCH_WENT_RE.search(msg):
+        lines.append("The player asked where they WENT: answer it in your first sentence from the lines above. Invent no destination, no room, no one who saw them go, and no scene of them elsewhere that is not listed here.")
     lines.append(
         "VOICE THIS: the player is not omniscient and the game never confirms where someone is if the player does not know. Report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one. "
         "A houseguest listed 'not in view' is somewhere behind a door in the house: name no room for them, never say they are nowhere or hidden, and let the player know they can open doors and look. "
@@ -4670,10 +4677,13 @@ def _presence_facts(state: dict) -> Optional[dict]:
     adjacent_rooms: set = set()
     adjacent_room_ids: set = set()  # ORW-466: the themed adjacent rooms by id, so a short form ("the Coral Reef") frames a sentence there too
     room_names = room_names_of(wa)  # ORW-466: the narrator names rooms by this season's themed names
+    far_zone: set = set()  # ORW-1167: in the player's room but at the far end of a big room (the engine's zone): seen, never heard
     for p in (wa.get("present") or []):
         if isinstance(p, dict) and p.get("name"):
             in_view.add(p["name"])
             room_present.add(p["name"])
+            if p.get("outOfEarshot"):
+                far_zone.add(p["name"])
     for nb in (wa.get("nearby") or []):
         if isinstance(nb, dict):
             _nr = str(nb.get("room") or "").replace("-", " ").strip().lower()
@@ -4728,7 +4738,7 @@ def _presence_facts(state: dict) -> Optional[dict]:
             exempt.add(_r["name"].strip())
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
-            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
+            "far_zone": far_zone, "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
             **({"adjacent_room_ids": adjacent_room_ids} if adjacent_room_ids else {})}
 
 
@@ -4748,12 +4758,22 @@ def _first_name_counts(names) -> dict:
 def _name_staged_unique(sentence: str, full_name: str, first_counts: dict) -> bool:
     """True if `full_name` is STAGED as acting in `sentence` — by their full name, OR by their first
     name alone when that first name is unique across the whole roster (never ambiguous)."""
-    if _stages_in_scene(sentence, full_name):
+    if _stages_in_scene(sentence, full_name) or _placed_in_scene(sentence, full_name):
         return True
     parts = full_name.split()
     if len(parts) > 1 and first_counts.get(parts[0].lower(), 0) == 1:
-        return _stages_in_scene(sentence, parts[0])
+        return _stages_in_scene(sentence, parts[0]) or _placed_in_scene(sentence, parts[0])
     return False
+
+
+# ORW-1183: a houseguest PLACED in the scene with no verb ("Jace by the crates", "Valerie, on the bench") is as much a placement as one who acts. The name must be directly followed (optional comma)
+# by a place word and then a noun phrase, so a negation ("Kai isn't on the landing") or a question never matches. Quoted speech is blanked first: only the narration places people.
+_PLACED_PREP_ALT = r"by|on|at|near|beside|against|behind|across\s+from|next\s+to|in\s+front\s+of|leaning\s+on|sprawled\s+on|seated\s+on|in"
+
+
+def _placed_in_scene(sentence: str, name: str) -> bool:
+    narr = re.sub(r'"[^"]*"|\u201c[^\u201d]*\u201d', " ", sentence or "")
+    return bool(re.search(rf"\b{re.escape(name)}\b,?\s+(?:{_PLACED_PREP_ALT})\s+(?:the|a|an|his|her|their|its)\s+\w+", narr, re.IGNORECASE))
 
 
 def _presence_desync_directive(narration: str, facts: dict) -> Optional[str]:
@@ -4841,6 +4861,17 @@ def _sentence_stages_absent_npc(sentence: str, facts: dict, first_counts: dict) 
                     return n
             elif _name_staged_unique(_narr, n, first_counts):
                 return n
+    return None
+
+
+def _far_zone_speaker(sentence: str, facts: dict, first_counts: dict) -> Optional[str]:
+    """ORW-1167: the houseguest the engine seats out of earshot (the far end of a big room) who is staged SPEAKING in `sentence` (a quoted line, or a speaker line), or None. Only speech counts: describing where they stand or what they do over there stays."""
+    far = (facts.get("far_zone") or set()) - set(facts.get("exempt") or ())
+    if not far or not re.search(r'["\u201c\u201d]|@\[', sentence or ""):
+        return None
+    for n in sorted(far):
+        if _name_staged_unique(sentence, n, first_counts):
+            return n
     return None
 
 
@@ -5074,7 +5105,7 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
-    if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
+    if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent") and not facts.get("far_zone")):
         if carry.get("drop_quote") or carry.get("quote"):
             pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
         else:
@@ -5101,7 +5132,7 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
             part = part[close_end:]  # the closing mark ends the quote; the rest is judged on its own
             if not part.strip():
                 continue
-        if not facts or not (facts.get("evicted") or facts.get("active_offscene") or facts.get("adjacent")):
+        if not facts or not (facts.get("evicted") or facts.get("active_offscene") or facts.get("adjacent") or facts.get("far_zone")):
             out.append(part)  # ORW-917: only finishing a carried drop this chunk; nothing to screen
             continue
         try:
@@ -5121,6 +5152,8 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 drop_quote = quote is not None
                 continue  # DROP: their quoted speech
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
+            if not hit:
+                hit = _far_zone_speaker(part, facts, first_counts)  # ORW-1167: someone out of earshot does not answer the player's end of the room
             if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
                 hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
             if hit:
@@ -9520,7 +9553,8 @@ def _competition_scene_steer(log, continuing: bool = False, paused: bool = False
         tail = ("; then (3) the winner, by name, exactly as the game gives it" + (f" ({crown})" if crown else "") + "; (4) the walk back inside. Keep each round to two or three sentences so EVERYTHING below, up to and "
                 "including the winner, lands in THIS reply - the game has already run it, so do not carry any round or the winner over to the next reply.")
     return (
-        head + tail + " The wording of each round below is the game's; dress it, do not contradict it."
+        head + tail + " The wording of each round below is the game's; dress it, do not contradict it. Voice ONLY the rounds listed here (earlier rounds were told in earlier replies: never tell them again, and use no sentence an earlier reply already used). "
+        "If the player is among those out in a round, the game reports it: state it as plain fact from the house and never write the player's own fall, steps, thoughts, words or reaction."
         + ("\nROUNDS IN ORDER:\n" + "\n".join(lines) if lines else "")
         + ("\nWINNER: " + crown if crown and not paused else "")
     )

@@ -78,7 +78,7 @@ CASTING_MIN_LITERALS = 20   # measured 102 on this branch
 #          new multi-line rule block trips it, loose enough that reworded lines don't.
 # CASTING: measured  8,311 chars (~2,077 token-proxy) on 2026-07-12.
 #          ceiling  9,000 = measured + ~689 (~8.3%) headroom.
-BASE_CEILING_CHARS = 47_400  # +200 for ORW-713 (the one line telling the narrator that ending the season is the player's own New Chat act, so it never offers a closed door)
+BASE_CEILING_CHARS = 47_500  # +100 for ORW-1167 (the earshot and privacy line in the whereabouts guide), +200 for ORW-713 (the one line telling the narrator that ending the season is the player's own New Chat act, so it never offers a closed door)
 CASTING_CEILING_CHARS = 9_000
 
 

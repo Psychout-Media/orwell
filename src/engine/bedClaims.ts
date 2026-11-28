@@ -242,6 +242,8 @@ const BED_WORD = /\b(?:bed|beds|bunk|bunks|mattress|cot|double|doubles|half of|o
 const CLAIM_VERB = /\b(?:take|taking|took|claim|claiming|grab|grabbing|pick|picking|choose|choosing|chose|want|snag|snagging|dibs|call|calling|go with|going with|settle on|sleep(?:ing)? (?:in|on)|put my (?:bag|bags|stuff|things|suitcase)|drop my (?:bag|bags|stuff|things|suitcase)|throw my (?:bag|bags|stuff|things|suitcase)|this one|that one|mine)\b/;
 const SWAP_VERB = /\b(?:swap|swapping|switch|switching|trade|trading|exchange)\b/;
 const HEDGE = /\b(?:maybe|perhaps|might|thinking about|wonder|if|unless|don'?t|do not|not|never|won'?t|wouldn'?t|shouldn'?t|should i|later|can'?t|cannot|couldn'?t|refuse|refused|refusing|decided against|decide against|already|(?:i )?(?:type|typed)|ooc)\b/;
+const FIRST_PERSON = /\b(?:i|im|i'm|i'll|ill|i'd|id|me|my|we|let's|lets)\b/;
+const POSSESSED_ASK = /\b(?:want|wanna|take|taking|grab|claim|have|get|need|ask for|request|borrow|steal|swap|switch|trade)\b/;
 const NEAR = /\b(?:next to|near|beside|by|across from|close to|with|alongside|above|below|under|over)\s+$/;
 
 /** The names a room answers to: its display name, minus a leading "the", and the plain id forms ("bedroom a", "bedroom 1"). */
@@ -286,9 +288,22 @@ export function parsePlayerBedIntent(
     if (!BED_WORD.test(c) || HEDGE.test(c) || subjectOther) continue;
     if (/\b(?:tell|told|telling)\s+\S+(?:\s+\S+)?\s+(?:to|she|he|they|that)\b/.test(c) && !SWAP_VERB.test(c)) continue;
     const named = people.map((p) => ({ id: p.id, at: Math.max(...p.names.map((n) => findName(c, fold(n)))), names: p.names })).filter((p) => p.at >= 0);
+    // ORW-1179: a swap is the PLAYER's own ask. It needs a first-person want/take of that houseguest's bed, a first-person (or imperative, or directly addressed) swap verb, and a question only counts when it
+    // is the ask itself ("can I swap beds with X?"). A remark, a look, a seat, someone else's swap, or "is that X's bed?" never moves the player: the houseguest says yes from how they feel, so a stray
+    // read here moved the player without them asking.
+    const isQuestion = /\?\s*$/.test(raw.trim());
+    const askShape = /^ (?:can|could|may|might|would|will) (?:i|we|you)\b/.test(c);
     const possessed = named.find((p) => p.names.some((n) => new RegExp(`\\b${esc(fold(n))}'s\\s+(?:bed|bunk|spot)\\b`).test(c)));
-    if (possessed) { out = { kind: "swap", who: possessed.id }; continue; }
-    if (SWAP_VERB.test(c) && named.length > 0) { out = { kind: "swap", who: named[0]!.id }; continue; }
+    if (possessed) {
+      if (FIRST_PERSON.test(c) && POSSESSED_ASK.test(c) && (!isQuestion || askShape)) out = { kind: "swap", who: possessed.id };
+      continue;
+    }
+    if (SWAP_VERB.test(c) && named.length > 0) {
+      const addressed = named.find((p) => p.at <= 1); // "Dana, want to trade beds?": the player speaks to the houseguest
+      const imperative = /^ (?:swap|switch|trade|exchange)\b/.test(c);
+      if (!/\b(?:tell|told|telling)\b/.test(c) && (FIRST_PERSON.test(c) || imperative || addressed) && (!isQuestion || askShape || addressed)) out = { kind: "swap", who: (addressed ?? named[0]!).id };
+      continue;
+    }
     if (/\?\s*$/.test(raw.trim()) && !/^\s*(?:can|could|may) i (?:take|have|grab|claim)\b/.test(c.trim())) continue; // "is that bed free?" asks, "can I take it?" claims
     if (!CLAIM_VERB.test(c)) continue;
     const room = rooms.find((r) => r.names.some((n) => findName(c, fold(n)) >= 0));

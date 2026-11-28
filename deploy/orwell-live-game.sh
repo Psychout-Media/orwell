@@ -11,13 +11,16 @@
 # sqlite3 module (read-only); the sqlite3 command-line tool is only a fallback, because a production box has
 # python3 but not that tool (ORW-233). Nothing is installed for it.
 #
-# NEVER STUCK, by construction (see update_defer_decision): --force / ORWELL_UPDATE_FORCE=1 skip the
-# check; an unreadable/absent signal means RUN (fail open); and a hard maximum defer proceeds anyway UNLESS a player message is still under the idle threshold old (ORW-1074: a live game is never restarted; the admin is alerted).
+# NEVER A LIVE RESTART (ORW-1074), see update_defer_decision: a deferred update waits for the game to be idle however
+# long that takes; the "maximum" only raises an ALERT (log + status file + web page), it never forces the restart.
+# An unreadable/absent signal means RUN (fail open). The ONLY ways past a live game are a HUMAN's --force (a terminal on
+# stdin: see update_force_honored; an automated caller's --force is downgraded to a normal, deferring run) and the web
+# Update page's force button.
 #
 # Tunables (env wins, then the ROOT-OWNED /etc/orwell/update-defer.conf, then data/.env, then default;
 # every value is clamped, so even a tampered data/.env cannot make the wait unbounded):
-#   ORWELL_UPDATE_IDLE_MINUTES       idle time that counts as "game over"   (default 15, 1..120)
-#   ORWELL_UPDATE_MAX_DEFER_MINUTES  longest the update may wait            (default 240, 1..1440; data/.env may raise it only to 240, the root conf/env to 1440)
+#   ORWELL_UPDATE_IDLE_MINUTES       idle time that counts as "game over"   (default 30, 1..120)
+#   ORWELL_UPDATE_MAX_DEFER_MINUTES  how long a deferral may last before it ALERTS (never before it restarts: ORW-1074) (default 240, 1..1440; data/.env may raise it only to 240, the root conf/env to 1440)
 #   ORWELL_UPDATE_DEFER_POLL_SECONDS re-check interval                      (default 60, 5..300)
 #   ORWELL_UPDATE_FORCE=1            skip the idle check (still waits, bounded, for an in-flight turn: ORW-406)
 #   ORWELL_UPDATE_FORCE_NOW=1        emergency only: also skip the in-flight-turn wait (--force-now)
@@ -27,7 +30,7 @@
 # the service-user-owned data/ tree, because this code runs as root. The web page gets the same news through
 # the ops-progress channel (data/ops/update-status.json) via the update_defer_notify hook.
 
-ORWELL_UPDATE_IDLE_MINUTES_DEFAULT=15
+ORWELL_UPDATE_IDLE_MINUTES_DEFAULT=30
 ORWELL_UPDATE_MAX_DEFER_MINUTES_DEFAULT=240
 ORWELL_UPDATE_DEFER_POLL_SECONDS_DEFAULT=60
 ORWELL_UPDATE_ROOT_CONF="${ORWELL_UPDATE_ROOT_CONF:-/etc/orwell/update-defer.conf}"
@@ -70,22 +73,31 @@ update_defer_setting() {
   printf '%s' "$v"
 }
 
+# ORW-1074: is a --force / ORWELL_UPDATE_FORCE=1 request HONORED? Only when a human is at a terminal (stdin is a tty), or
+# the host bridge that already had the human's terminal forwarded it (ORWELL_UPDATE_FORCE_FROM_TTY=1, set only by this
+# script's own forwarding). An automated caller (ssh without a tty from a merge/deploy bot, cron, an agent) that passes
+# --force is NOT honored: its run is an ordinary deferring one. On 2026-11-28 twelve such `ssh root@prod orwell-update.sh
+# --force` calls restarted prod in the middle of a live game. A human who needs it in an emergency uses `ssh -t`.
+# $1 force (1|0)  $2 stdin_is_tty (1|0)  $3 forwarded-from-a-tty (1|0). Prints honored | downgraded | none.
+update_force_honored() {
+  local force="${1:-0}" tty="${2:-0}" fwd="${3:-0}"
+  if [[ "$force" != "1" ]]; then echo none; return 0; fi
+  if [[ "$tty" == "1" || "$fwd" == "1" ]]; then echo honored; else echo downgraded; fi
+}
+
 # THE decision, pure (no I/O) so it is unit-testable.
 #   $1 force (1|0)  $2 idle_seconds ("" = unknown; negative = clock skew, treated as LIVE)
 #   $3 idle_threshold_minutes  $4 deferred_seconds  $5 max_defer_minutes
-# Prints:  run:force | run:unknown | run:idle | run:max-defer | defer:live | defer:max-live
-# ORW-1074: the maximum defer never restarts a LIVE game. Past the maximum, a player message younger than the idle
-# threshold (idle >= 0) keeps deferring (defer:max-live, and the loop alerts the admin); only a game that is not live
-# (a skewed clock, negative idle) is bounded by the maximum. --force and the web force flag still override.
+# Prints:  run:force | run:unknown | run:idle | defer:live | defer:max-live
+# ORW-1074: the maximum defer never restarts a game. Past the maximum the update keeps deferring (defer:max-live, and the
+# loop alerts the admin) until the game is idle, including a skewed clock (negative idle). No verdict ever forces a restart at the maximum.
+# --force (honored only from a human, see update_force_honored) and the web force flag still override.
 update_defer_decision() {
   local force="$1" idle="$2" thr_min="$3" waited="$4" max_min="$5"
   if [[ "$force" == "1" ]]; then echo "run:force"; return 0; fi
   if [[ ! "$idle" =~ ^-?[0-9]+$ ]]; then echo "run:unknown"; return 0; fi
   if (( 10#${idle#-} >= thr_min * 60 )) && [[ "$idle" != -* ]]; then echo "run:idle"; return 0; fi
-  if (( waited >= max_min * 60 )); then
-    if [[ "$idle" != -* ]]; then echo "defer:max-live"; else echo "run:max-defer"; fi
-    return 0
-  fi
+  if (( waited >= max_min * 60 )); then echo "defer:max-live"; return 0; fi
   echo "defer:live"
 }
 
@@ -371,7 +383,6 @@ update_wait_for_idle_game() {
         update_run_supersede
         case "$verdict" in
           run:force)     echo "==> live-game check skipped (--force / web force / ORWELL_UPDATE_FORCE=1)" ;;
-          run:max-defer) echo "==> update was deferred ${waited}s for a live game; max defer (${max} min) reached — proceeding anyway" ;;
           run:idle)      [[ $waited -gt 0 ]] && echo "==> game idle for ${idle}s (>= ${thr} min) after deferring ${waited}s — proceeding with the update" ;;
           run:unknown)   echo "==> live-game signal unavailable (no DB / table / player message, or unreadable) — proceeding" ;;
         esac
@@ -379,7 +390,7 @@ update_wait_for_idle_game() {
     esac
     if [[ "$verdict" == defer:max-live ]]; then
       # ORW-1074: past the maximum and a player is still active: keep waiting, never restart a live game, alert the admin.
-      msg="ALERT: update OVERDUE: the maximum deferral (${max} min) passed but a game is still live (last player message ${idle}s ago; ${thr} min idle needed). NOT restarting a live game: it runs when the game goes idle, or force it now: bash orwell-update.sh --force."
+      msg="ALERT: update OVERDUE: the maximum deferral (${max} min) passed but a game is still live (last player message ${idle}s ago; ${thr} min idle needed). NOT restarting a live game: it runs when the game goes idle, or a human can force it now from a terminal: orwell-update.sh --force."
       UPDATE_WAIT_DEFERRED=1; UPDATE_WAIT_OVERDUE=1
       update_defer_write_status "OVERDUE, live game: last player message ${idle}s ago (< ${thr} min idle needed); the update runs when the game is idle" "$since" "overdue-until-idle" "$((now + 600))" "$my_seq"   # epoch refreshed each poll: the doctor ignores a status whose waiter died
       type update_defer_notify >/dev/null 2>&1 && update_defer_notify "$msg"
@@ -391,7 +402,7 @@ update_wait_for_idle_game() {
       _update_defer_sleep "$poll"
       continue
     fi
-    msg="Update deferred: a game is live (last player message ${idle}s ago; waiting for ${thr} min idle). Runs by ${until_} at the latest, or force it now: bash orwell-update.sh --force."
+    msg="Update deferred: a game is live (last player message ${idle}s ago; waiting for ${thr} min idle). Runs when the game has been idle that long (an alert is raised after ${until_}); a human can force it now from a terminal: orwell-update.sh --force."
     UPDATE_WAIT_DEFERRED=1   # this run really waited (the updater re-checks under the lock only for a run that did)
     update_defer_write_status "live game: last player message ${idle}s ago (< ${thr} min idle needed)" "$since" "$until_" "$((start + max * 60))" "$my_seq"
     type update_defer_notify >/dev/null 2>&1 && update_defer_notify "$msg"
