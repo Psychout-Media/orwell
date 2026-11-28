@@ -3382,6 +3382,12 @@ function initializeEventListeners() {
     textarea.addEventListener('input', () => {
       uiModule.autoResize(textarea);
     });
+    // ORW-1142: hide the placeholder while an IME / dictation composition is open and size the box as it grows.
+    textarea.addEventListener('compositionstart', () => textarea.classList.add('is-composing'));
+    textarea.addEventListener('compositionend', () => {
+      textarea.classList.remove('is-composing');
+      uiModule.autoResize(textarea);
+    });
     textarea.addEventListener('paste', () => {
       setTimeout(() => uiModule.autoResize(textarea), 1);
     });

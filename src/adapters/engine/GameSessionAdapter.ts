@@ -8389,6 +8389,7 @@ export class GameSessionAdapter implements GameSession {
     if (replay.hit) return replay.value;
     this.guardBeatSeq(req.expectedBeatSeq);
     if (!this.house || !this.presence) return { playerMove: null, whereabouts: null };
+    if (this.holdPlayerBed(this.live?.beds)) this.persist(); // ORW-1179: a bed that moved with no act of theirs is put back before anything else reads it
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
     const peersBefore = this.companionsOfPlayer(here); // ORW-1138: who the player is with, read before anything moves him
@@ -9213,12 +9214,50 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-466: the `share` for half of a double (pull/aversion toward the would-be bedmate, `BED_RULES`). */
   private bedShare(r: BedReader = this.bedReader()): (who: EntityId, other: EntityId) => number { return bedmateShare(r, RELATIONSHIP_CONSTANTS.baseline.affinity); }
 
+  /**
+   * ORW-1179: every bed change writes one journal line naming who, from, to, why and by whom, so a bed that moves is never silent again (prod 11-28: the player's bed changed with no journal line).
+   * Ids and bed ids only (no chat text), to the engine's own log.
+   */
+  private logBedChange(who: EntityId, from: BedId | undefined, to: BedId, why: string, by: string): void {
+    console.log(`[orwell] bed-change who=${who} from=${from ?? "none"} to=${to} why=${why} by=${by} day=${this.live?.dayNumber ?? 1}`);
+  }
+
+  /** ORW-1179: the player's own act set their bed; remember it as the one the engine keeps them in. */
+  private authorizePlayerBed(beds: BedsState): void {
+    const mine = beds.owner[PLAYER];
+    if (mine !== undefined) beds.playerBed = mine;
+  }
+
+  /**
+   * ORW-1179: the player's bed only changes on the player's own act (a claim, a trade they asked for and the owner agreed, the leftover at their first bedtime). If the owner map ever shows them anywhere else
+   * without such an act (a stray writer, a restore), the engine logs it and puts them back: the exact inverse of a swap when someone holds their spot, else just the spot. An older save with no record adopts
+   * what it has. Returns true when it put them back (the caller persists).
+   */
+  private holdPlayerBed(beds: BedsState | undefined): boolean {
+    if (!beds) return false;
+    const mine = beds.owner[PLAYER];
+    if (mine === undefined) return false;
+    if (beds.playerBed === undefined) { beds.playerBed = mine; return false; }
+    if (mine === beds.playerBed) return false;
+    const living = new Set(this.livingIds());
+    const want = beds.playerBed;
+    const holder = Object.entries(beds.owner).find(([who, spot]) => who !== PLAYER && spot === want && living.has(who))?.[0];
+    console.warn(`[orwell] bed-change UNAUTHORIZED who=${PLAYER} from=${want} to=${mine} why=no-player-act by=engine-guard: put back${holder ? `, ${holder} returns to ${mine}` : ""}`);
+    const day = this.live?.dayNumber ?? 1;
+    beds.owner[PLAYER] = want;
+    beds.claims.push({ who: PLAYER, bed: want, day, why: "move" });
+    if (holder) { beds.owner[holder] = mine; beds.claims.push({ who: holder, bed: mine, day, why: "move" }); }
+    this.logBedChange(PLAYER, mine, want, "move", "engine-guard");
+    return true;
+  }
+
   /** ORW-466 slice 2: one NPC claims the bed they read best, with a little luck from a side stream (`${seed}:beds:...`, so no shared roll moves); the house sees who they chose to room with. */
   private claimNpcBed(beds: BedsState, who: EntityId, living: ReadonlySet<EntityId>, guard?: (bed: BedId) => boolean): BedId | undefined {
     const seed = this.gameSeed ?? 0;
     const r = this.bedReader();
     const bed = pickBedFor(beds, who, living, r, this.bedShare(r), (w, room) => new SeededRandom(hashSeed(`${seed}:beds:${w}:${room}`)).next());
     if (!bed || (guard && !guard(bed)) || !claimBed(beds, who, bed, this.live?.dayNumber ?? 1, "move-in", living)) return undefined;
+    this.logBedChange(who, undefined, bed, "move-in", who);
     this.noteBedChoice(beds, who, roomOfBed(bed), living);
     // ORW-466 slice 3: the lost-bed grudge - the spot they wanted most went to an earlier arrival, and they wanted it far more than the one they got: a tiny hidden grudge toward the taker.
     const share = this.bedShare(r);
@@ -9666,6 +9705,8 @@ export class GameSessionAdapter implements GameSession {
       const later = mine !== undefined; // slice 3: a move after their first bed
       const leftMate = mine ? bedPartner(beds, PLAYER, living) : undefined;
       claimBed(beds, PLAYER, bed, day, later ? "move" : "move-in", living);
+      this.authorizePlayerBed(beds);
+      this.logBedChange(PLAYER, mine, bed, later ? "move" : "move-in", "player-claim");
       const mate = bedPartner(beds, PLAYER, living);
       if (later) this.foldBedMove(PLAYER, leftMate !== undefined && leftMate !== mate ? [leftMate] : [], mate !== undefined && mate !== leftMate ? [mate] : [], day);
       this.playerBedNote = `the player just claimed ${isDoubleSpot(bed) ? `half of a double${mate ? ` next to ${this.nameOf(mate)}` : ""}` : "a single bed"} in ${this.roomName(room)} (engine truth: voice it as theirs)`;
@@ -9701,6 +9742,9 @@ export class GameSessionAdapter implements GameSession {
     }
     const before = { owner: bedPartner(beds, owner, living), player: bedPartner(beds, PLAYER, living) };
     if (!swapBeds(beds, PLAYER, owner, ownerTo, day, living)) return false;
+    this.authorizePlayerBed(beds);
+    this.logBedChange(PLAYER, mine, beds.owner[PLAYER]!, "swap", `player-ask:${owner}`);
+    this.logBedChange(owner, theirBed, beds.owner[owner]!, "swap", `player-ask:${owner}`);
     // A trade is felt like any move: whoever each side left behind or joined reads it (the player's own edge is never touched).
     for (const [who, was] of [[owner, before.owner], [PLAYER, before.player]] as const) {
       const now = bedPartner(beds, who, living);
@@ -9811,6 +9855,7 @@ export class GameSessionAdapter implements GameSession {
     const beds = this.ensureBeds();
     if (!beds) return;
     this.resumeBedRush(); // ORW-672 / 0201: a rush left waiting on the player's bed finishes once they have one
+    this.holdPlayerBed(beds); // ORW-1179: the player's bed changes only on their own act
     const living = new Set(this.livingIds());
     const day = s.dayNumber ?? 1;
     for (const gone of s.evictionOrder) {
@@ -9832,6 +9877,7 @@ export class GameSessionAdapter implements GameSession {
     const movers = [...living].filter((id) => id !== PLAYER);
     const move = planGoalMove(beds, movers, living, r, this.bedShare(r), (who) => this.bedGoalsOf(who, living));
     if (!move || !applyMove(beds, move, day, living)) return;
+    this.logBedChange(move.who, move.from, move.to, "move", "npc-goal");
     this.noteBedChoice(beds, move.who, roomOfBed(move.to), living, move.freedBy !== undefined ? `moves into ${this.nameOf(move.freedBy)}'s old ${isDoubleSpot(move.to) ? "half of a double" : "bed"} in` : "moves their things to a bed in");
     this.foldBedMove(move.who, move.left, move.joined, day);
   }
@@ -9843,7 +9889,7 @@ export class GameSessionAdapter implements GameSession {
     if (!beds.owner[PLAYER] && BED_RULES.leftoverAtFirstBedtime) { // ORW-466 slice 2 (Q4, data): the bed left over at the player's first bedtime
       const inHouse = new Set(this.livingIds());
       const left = freeBeds(beds, inHouse)[0];
-      if (left) { claimBed(beds, PLAYER, left, this.live.dayNumber ?? 1, "leftover", inHouse); this.resumeBedRush(); }
+      if (left) { claimBed(beds, PLAYER, left, this.live.dayNumber ?? 1, "leftover", inHouse); this.authorizePlayerBed(beds); this.logBedChange(PLAYER, undefined, left, "leftover", "first-bedtime"); this.resumeBedRush(); }
     }
     const room = sleepRoomOf(beds, PLAYER, this.live.hoh);
     if (room && this.presence.get(PLAYER) !== room) {

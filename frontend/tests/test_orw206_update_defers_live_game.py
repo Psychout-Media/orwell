@@ -58,7 +58,7 @@ def test_bash_n(name):
     ("0 'abc' 15 0 240", "run:unknown"),
     ("0 -30 15 0 240", "defer:live"),           # negative idle = clock skew -> treated as LIVE
     ("0 -99999 15 0 240", "defer:live"),
-    ("0 -30 15 14400 240", "run:max-defer"),    # ...but a skewed clock is not a live game: bounded by max defer
+    ("0 -30 15 14400 240", "defer:max-live"),   # ORW-1074: even a skewed clock never turns the maximum into a restart
 ])
 def test_decision(args, expected):
     assert bash(f"update_defer_decision {args}") == expected
@@ -253,14 +253,16 @@ def test_web_force_flag_that_is_a_symlink_or_stale_is_ignored(tmp_path):
     target = tmp_path / "t"
     target.write_text("x")
     (ops / "update-force-requested").symlink_to(target)
-    out = run_loop(tmp_path, idle=-500, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "1", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"})
-    assert "web force request" not in out and "max defer" in out
+    out = run_loop(tmp_path, idle=-500, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "1", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"},
+                   on_sleep='[[ $SLEEPS -ge 3 ]] && IDLE=2000 || true')
+    assert "web force request" not in out and "SLEEPS=3" in out
     (ops / "update-force-requested").unlink()
     f = ops / "update-force-requested"
     f.write_text("x")
     old = time.time() - 7200
     os.utime(f, (old, old))
-    out = run_loop(tmp_path, idle=-500, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "1", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"})
+    out = run_loop(tmp_path, idle=-500, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "1", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"},
+                   on_sleep='[[ $SLEEPS -ge 3 ]] && IDLE=2000 || true')
     assert "web force request" not in out
 
 
@@ -272,9 +274,10 @@ def test_none_signal_runs_but_error_retries_then_runs(tmp_path):
 
 
 @needs_bash
-def test_negative_idle_is_live_until_max_defer(tmp_path):
-    out = run_loop(tmp_path, idle=-500, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "2", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"})
-    assert "SLEEPS=2 T=120" in out and "max defer" in out
+def test_negative_idle_is_live_and_alerts_past_max_defer(tmp_path):
+    out = run_loop(tmp_path, idle=-500, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "2", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"},
+                   on_sleep='if [[ $T -ge 1000300 ]]; then IDLE=2000; fi')
+    assert "ALERT: update OVERDUE" in out and "proceeding anyway" not in out and "SLEEPS=5 T=300" in out
 
 
 @needs_bash
@@ -293,12 +296,6 @@ def test_overdue_alert_is_rate_limited(tmp_path):
     out = run_loop(tmp_path, idle=1, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "1", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"},
                    on_sleep='if [[ $T -ge 1003600 ]]; then IDLE=2000; fi', call_extra='update_defer_alert() { echo "ALERTHOOK"; }; ')
     assert 2 <= out.count("ALERTHOOK") <= 3   # at the crossing, then every 30 minutes: not every poll
-
-
-@needs_bash
-def test_max_defer_still_bounds_a_skewed_clock(tmp_path):
-    out = run_loop(tmp_path, idle=-500, env={"ORWELL_UPDATE_MAX_DEFER_MINUTES": "2", "ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"})
-    assert "max defer (2 min) reached" in out and "STATUS_PRESENT=no" in out
 
 
 @needs_bash
@@ -376,3 +373,71 @@ def test_wait_message_names_a_command_not_a_missing_admin_control():
     src = (Path(__file__).resolve().parents[2] / "deploy" / "orwell-live-game.sh").read_text()
     assert "force it from the admin page" not in src
     assert "orwell-update.sh --force" in src
+
+
+# ── ORW-1074: an automated --force is not a force; a deferred update waits for idle, however long ─────────────
+def _force_guard_block():
+    start = UPDATE.index("# ORW-1074: a --force that no human typed")
+    return UPDATE[start:UPDATE.index("\nfi\n", start) + 4]
+
+
+def _guard(force, tty_env="0", stdin="/dev/null"):
+    script = (f"FORCE={force}; FORCE_NOW={force}; ORWELL_UPDATE_FORCE_FROM_TTY={tty_env}\n{_force_guard_block()}\n"
+              'echo "FORCE=$FORCE FORCE_NOW=$FORCE_NOW"')
+    r = subprocess.run(["bash", "-c", f"set -uo pipefail; . '{LIB}'; {script}"], stdin=open(stdin), capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+@needs_bash
+@pytest.mark.parametrize("args,expected", [
+    ("1 0 0", "downgraded"),   # ssh without a tty from a bot/agent
+    ("1 1 0", "honored"),      # a human at a terminal
+    ("1 0 1", "honored"),      # forwarded by our own host bridge from a terminal
+    ("0 0 0", "none"), ("0 1 0", "none"),
+])
+def test_force_honored_only_from_a_human_terminal(args, expected):
+    assert bash(f"update_force_honored {args}") == expected
+
+
+@needs_bash
+def test_a_forced_run_without_a_terminal_is_downgraded_by_the_updater():
+    out = _guard(1)
+    assert "FORCE=0 FORCE_NOW=0" in out and "--force ignored" in out
+    assert "FORCE=1 FORCE_NOW=1" in _guard(1, tty_env="1")   # the bridge's own forward keeps a human's force
+    assert "FORCE=0" in _guard(0) and "ignored" not in _guard(0)
+
+
+@needs_bash
+def test_update_requested_during_a_live_game_defers_then_one_restart_once_idle(tmp_path):
+    # 2026-11-28: `ssh root@prod orwell-update.sh --force` x12 restarted prod 90 s after a player turn. A non-tty force is now a normal run.
+    forced = 1 if "FORCE=1" in _guard(1) else 0
+    assert forced == 0
+    out = run_loop(tmp_path, idle=90, force=forced, env={"ORWELL_UPDATE_DEFER_POLL_SECONDS": "60"},
+                   on_sleep='[[ $T -ge 1001800 ]] && IDLE=2000 || IDLE=$((IDLE + 60))')
+    assert "skipped" not in out and "Update deferred" in out          # deferred, not forced through
+    assert out.count("proceeding with the update") == 1               # one restart, only once the game is idle
+    assert "SLEEPS=" in out and "STATUS_PRESENT=no" in out
+
+
+@needs_bash
+def test_a_second_queued_update_is_superseded_when_the_first_proceeds(tmp_path):
+    # Coalescing: B defers too; when A proceeds (game idle) B, still waiting, sees A went ahead and exits 10 without restarting.
+    run = tmp_path / "run"
+    (tmp_path / "ops").mkdir()
+    out = bash(f"""
+        export ORWELL_RUN_DIR='{run}'; T=1000000; IDLE=30
+        _update_defer_now() {{ echo $T; }}
+        live_game_idle_seconds() {{ printf '%s' "$IDLE"; }}
+        _update_defer_sleep() {{ T=$((T + $1)); if [[ $PHASE == B ]]; then IDLE=2000; (update_run_supersede) ; fi; }}
+        PHASE=B; b=0; update_wait_for_idle_game /x.db '{tmp_path}/ops' 0 '' >/dev/null || b=$?
+        echo "B_RC=$b"
+        """)
+    assert "B_RC=10" in out
+
+
+def test_deferral_has_no_forcing_maximum_and_idle_window_is_30_minutes():
+    lib = LIB.read_text()
+    assert "run:max-defer" not in lib and "proceeding anyway" not in lib
+    assert "ORWELL_UPDATE_IDLE_MINUTES_DEFAULT=30" in lib
+    assert bash("update_defer_setting ORWELL_UPDATE_IDLE_MINUTES 30 1 120 ''") == "30"
