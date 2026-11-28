@@ -111,7 +111,8 @@ def test_orw382_the_day_in_review_reaches_the_narrator_on_a_direct_turn_in():
     assert len(full) > 4000 and '"dailyRecap"' not in full[:4000]  # red on the old cut
     msg = al._bedtime_tool_message(full)
     assert msg.startswith('{"dailyRecap"') and "a toast" in msg
-    assert "dailyRecap" in al._bedtime_direct_note(full) and "before the new morning" in al._bedtime_direct_note(full).lower()
+    # ORW-1165: the recap is shown as its own message, so the narrator is told it is already shown and to open on the morning (the recap still reaches it as context)
+    assert "dailyRecap" in al._bedtime_direct_note(full) and "already shown" in al._bedtime_direct_note(full) and "open on the new morning" in al._bedtime_direct_note(full).lower()
     empty = json.dumps({"dailyRecap": {"day": 1, "highlights": [], "surfaced": []}})
     assert al._bedtime_direct_note(empty) == al._BEDTIME_DIRECT_NOTE  # an empty recap: nothing to voice, never invent
     assert al._bedtime_tool_message("not json") == "not json"

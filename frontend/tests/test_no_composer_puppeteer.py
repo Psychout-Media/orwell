@@ -79,10 +79,10 @@ def test_send_hidden_cue_is_headless():
 def test_safe_stream_emits_a_typed_terminal_on_failure():
     # C — the server generator never closes the body silently: any exception / silent exit becomes a
     # typed event:error + [DONE], so the client never sees a bare transport drop (its hijack trigger).
-    src = _read(ROUTES / "chat_routes.py")
-    m = re.search(r"async def _safe_stream\(\).*?(?=\n        async def |\n        # Compare)", src, re.DOTALL)
-    assert m, "could not locate _safe_stream"
-    body = m.group(0)
-    assert '"terminal": True' in body, "_safe_stream must emit a typed terminal error chunk on failure"
-    assert "ended without a reply" in body, "_safe_stream must terminate a silent/empty exit"
-    assert 'yield "data: [DONE]\\n\\n"' in body, "_safe_stream must close with [DONE]"
+    # ORW-1143: the wrapper moved out of the route into src/orwell_stream_failure.py (`guard_stream`); the route's `_safe_stream` delegates to it.
+    route = _read(ROUTES / "chat_routes.py")
+    assert "_sf.guard_stream(stream_with_save" in route, "_safe_stream must delegate to guard_stream"
+    body = _read(ROUTES.parent / "src" / "orwell_stream_failure.py")
+    assert '"terminal": True' in body, "guard_stream must emit a typed terminal error chunk on failure"
+    assert "ended without a reply" in body, "guard_stream must terminate a silent/empty exit"
+    assert 'yield "data: [DONE]\\n\\n"' in body, "guard_stream must close with [DONE]"

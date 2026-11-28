@@ -2808,7 +2808,10 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             from src.orwell_facet_ledger import mint_facet_ledger
             slots = assign_genesis_slots(seed, len(npc_ids))
             physical = [bool(s.get("physical")) for s in slots]
-            ledger = mint_facet_ledger(seed, len(npc_ids), physical)
+            _cards = {str(n.get("id")): n for n in (cast or []) if isinstance(n, dict) and n.get("id")}
+            # ORW-1127: the look is dealt from each slot's heritage and age on the committed card, so it fits the person.
+            people = [{"ethnicity": (_cards.get(h) or {}).get("ethnicity"), "age": _age_of(_cards.get(h) or {})} for h in npc_ids]
+            ledger = mint_facet_ledger(seed, len(npc_ids), physical, people)
             if len(ledger) == len(npc_ids):
                 hand_by_id = {hid: ledger[i] for i, hid in enumerate(npc_ids)}
         except Exception as e:  # pragma: no cover - defensive: a ledger hiccup never breaks authoring

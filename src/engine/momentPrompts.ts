@@ -1205,9 +1205,20 @@ function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
   if (!d.made) {
     return ["    Veto decision: NOT MADE YET. The game announces it at the Veto Ceremony; until then nobody, the holder included, has decided, so no one states or hints which way it went, and nobody is named as coming down."];
   }
-  if (!d.used) return [`    Veto decision (made): ${cer.veto.holder.name} did NOT use it; the nominees stand as they are.`];
-  const saved = d.saved ? (d.saved.id === cer.veto.holder.id ? "themselves" : d.saved.name) : "a nominee";
-  return [`    Veto decision (made): ${cer.veto.holder.name} USED it on ${saved}${d.replacement ? `; ${cer.hoh ? cer.hoh.name : "the HOH"} named ${d.replacement.name} as the replacement` : ""}. Nobody else came down.`];
+  const holder = cer.veto.holder.name;
+  const finalBlock = cer.nominees.map((n) => n.name);
+  const onBlock = finalBlock.length ? finalBlock.join(" and ") : "the nominees the game lists";
+  if (!d.used) return [`    Veto decision (made, engine truth): ${holder} holds the veto and did NOT use it. Nobody was saved and nobody came off the block; no replacement. The two on the block are ${onBlock}.`];
+  // ORW-1052: a holder who is a nominee and saves THEMSELF was voiced as saving the OTHER nominee (the old line said only "USED it on themselves", which a narrator read past). State it as a self-save, name who stays, and the final two.
+  const self = !!d.saved && d.saved.id === cer.veto.holder.id;
+  const hohName = cer.hoh ? cer.hoh.name : "the HOH";
+  const savedLine = self
+    ? `${holder} used it on THEMSELF: ${holder} (the holder) is the one saved and came off the block. The holder did NOT save anyone else; no other nominee came down.`
+    : `${holder} used it to save ${d.saved ? d.saved.name : "a nominee"}, who came off the block. ${holder} is NOT the one saved; no one else came down.`;
+  const replLine = d.replacement ? `${hohName} named ${d.replacement.name} as the replacement nominee.` : "No replacement is recorded.";
+  return [
+    `    Veto decision (made, engine truth): ${holder} holds the veto and USED it. ${savedLine} ${replLine} The two on the block now are ${onBlock}; voice no other saved person and no other block.`,
+  ];
 }
 
 /** ORW-715: who is still on the floor of a staged competition and who is already out, so an eliminated houseguest is never put back into a later round or the final. */
@@ -1402,6 +1413,10 @@ export function renderGameContext(view: GameStateView): string {
         ? [`    THE ${milestoneLabel(wa.houseEvent.kind as keyof typeof MILESTONE_LABEL).toUpperCase()} IS IN SESSION (engine truth): the whole house is gathered in ${roomRefHere(wa.houseEvent.room)}, and that is where it happens.`]
         : []),
       `    With you: ${here}.`,
+      // ORW-1169: a private talk is a lock the engine keeps: the two are busy until the scene ends.
+      ...(wa.privateTalk
+        ? [`    PRIVATE TALK (engine truth): you are talking privately with ${wa.privateTalk.with.name}. Neither of you leaves, and nobody else walks in, until the talk ends (a goodbye, one of you walking off, or an interruption the story shows). Keep the scene with them; do not move ${wa.privateTalk.with.name} elsewhere and do not write anyone else into the room.`]
+        : []),
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
         ? [`    SINCE YOU SPOKE (engine truth - weave in as ONE short beat, never skip it): ${[wa.sinceSend.arrived.length ? `${wa.sinceSend.arrived.join(", ")} just walked in` : "", wa.sinceSend.departed.length ? `${wa.sinceSend.departed.join(", ")} left the room` : ""].filter(Boolean).join("; ")}.`]
@@ -1452,7 +1467,7 @@ export function renderGameContext(view: GameStateView): string {
     return bits.length ? ` — ${bits.join(", ")}` : "";
   };
   const ent = pr ? premiereEntranceOf(pr) : null;
-  const premiereLines: string[] = !pr ? [] : ent ? premiereEntranceLines(ent, pr.met, observable, pr.remaining?.length ?? 0) : [
+  const premiereLines: string[] = !pr ? [] : ent ? (ent.stage === "done" ? premiereClosedLines() : premiereEntranceLines(ent, pr.met, observable, pr.remaining?.length ?? 0)) : [
     `- PREMIERE — THE CHAMPAGNE CIRCLE (engine truth): the producers convened the whole house for ` +
       `champagne-circle introductions, so all ${pr.total - 1} houseguests are MET at the toast — there is ` +
       `no roll-call to work through and nobody left to hunt down.`,
@@ -1519,6 +1534,22 @@ export function renderGameContext(view: GameStateView): string {
   // not knowledge": a fact witnessed only by B appears ONLY under B's block, never A's. Prompt-honoured
   // defence-in-depth (Layer 3's post-hoc guard is the backstop), never the sole wall. Present only when
   // someone in the room actually holds/suspects something ⇒ absent otherwise (byte-identical).
+  // ORW-1171: DISCRETION. The engine decides whether a houseguest may raise a private alliance or deal with people in earshot who are not in on it; the narrator only voices the call (ADR 0003 / 0005).
+  // Present only when a tie has a houseguest in the room, or two or more houseguests are in earshot of the player (a pitch made aloud) => byte-identical otherwise.
+  const discretionLines: string[] = (() => {
+    const d = view.discretion;
+    if (!d) return [];
+    const nm = (a: readonly string[]): string => a.map((n) => neutralizeForPrompt(n)).join(", ");
+    const lines: string[] = ["- WHO IS IN ON WHAT (engine truth; discretion - the engine has decided it, you only voice it):"];
+    for (const t of d.ties) {
+      const what = `${neutralizeForPrompt(t.label)}`;
+      if (t.call === "open") lines.push(`    · ${what}: everyone in earshot is in on it (${nm(t.inOn)}), so it may be raised aloud.`);
+      else if (t.call === "slip") lines.push(`    · ${what}: in on it here: ${nm(t.inOn)}. NOT in on it, and in earshot: ${nm(t.notInOn)}. THE ENGINE MARKED A SLIP THIS TURN: ${neutralizeForPrompt(t.slipBy ?? "one of them")} lets it out in front of ${nm(t.notInOn)}, a real lapse (carelessness, nerves, a hot moment) that those people now genuinely know. Voice the slip as a slip, with the others' reaction; no other houseguest airs it.`);
+      else lines.push(`    · ${what}: in on it here: ${nm(t.inOn)}. NOT in on it, and in earshot: ${nm(t.notInOn)}. DEFER: nobody in on it raises it, names its members or its terms, or says whether they are in it while those people can hear. They put it off ("later", "find me tonight", "not here") or ask the player for a word alone, in their own manner; a cover line or a change of subject is fine.`);
+    }
+    if (d.crowd.length >= 2) lines.push(`    · Houseguests in earshot of the player right now: ${d.crowd.length > 6 ? `${nm(d.crowd.slice(0, 6))} and ${d.crowd.length - 6} more` : nm(d.crowd)}. If the player pitches an alliance or a deal, or asks someone to join one, out loud in front of them, the houseguest asked answers in the open ONLY about what everyone present may hear; they defer the real answer or ask to talk alone, unless the line above says SLIP. A secret is never aired in front of people it has nothing to do with just because the player raised it.`);
+    return lines;
+  })();
   const presentKnowledgeLines: string[] = (view.presentKnowledge ?? []).length
     ? [
         "- WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS (voice each ONLY from THEIR OWN block —",
@@ -1667,6 +1698,7 @@ export function renderGameContext(view: GameStateView): string {
     ...ceremonyAndFloorLines,
     ...whereaboutsLines,
     ...presentKnowledgeLines,
+    ...discretionLines,
     ...premiereLines,
     // #1792 — Producer Read: the Vault-free post-scene exchange-accounting beat,
     // delivered ONCE in the moment prompt immediately after a substantive interaction.
@@ -2015,7 +2047,7 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     "- BOARD (engine-committed — the ONLY truth for these; name EXACTLY these people, never anyone else, and never invent a result):",
     `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : finalThree ? "nobody — in the Final 3 the HOH alone chooses which of the two remaining rivals leaves; do not call anyone a nominee" : "nobody yet — name no nominees"}.`,
     `    Veto: ${cer.veto.holder
-      ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
+      ? `held by ${cer.veto.holder.name}${cer.veto.used ? (cer.veto.decision?.made && cer.veto.decision.saved ? (cer.veto.decision.saved.id === cer.veto.holder.id ? " (used on THEMSELF: the holder is the one saved)" : ` (used to save ${cer.veto.decision.saved.name}, not the holder)`) : " (used)") : " (not used)"}`
       : finalThree
         ? "none — there is no Power of Veto in the Final 3; stage no veto"
         : "still being played or not yet decided — name no winner and no holder"}.`,
@@ -2301,6 +2333,19 @@ function premiereEntrancesFragment(): string {
   );
 }
 
+/**
+ * ORW-1133 (Ryne, 2026-11-28, "Valerie just introduced herself to me for like the 3rd time"): once the staged entrances flow reaches stage "done" the circle IS closed, but this flow printed NO engine line for it
+ * (the "circle has closed" line lives only on the old no-entrance path), so the premiere fragment's own "OVERRIDE once the engine truth reports it DONE" never had anything to trigger on and the narrator kept
+ * re-running introductions and toasts for the whole social hold. This is that engine line: introductions are over, for good.
+ */
+function premiereClosedLines(): string[] {
+  return [
+    `- PREMIERE \u2014 THE CIRCLE HAS CLOSED (engine truth): every houseguest has already given their toast and introduced themselves to the house and to the player, and the toast is over. ` +
+      `Nobody introduces themselves again: no name-hometown-job recital, no toast, no "nice to meet you" as if for the first time, no welcome-to-the-house speech. They are people who have met; talk as people who have met. ` +
+      `This overrides the toast and introduction beats above. Answer the player's newest message in this scene (the bedrooms, settling in, getting to know each other), and never repeat a line a houseguest has already said.`,
+  ];
+}
+
 function premiereEntranceLines(
   ent: PremiereEntranceShape,
   met: ReadonlyArray<{ houseguest: { id: string; name: string } }>,
@@ -2371,7 +2416,7 @@ function premiereEntranceLines(
         (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
         (sp ? `Speakers this batch, in order: ${sp}. Voice EVERY houseguest speaker named here, each as their own toast (their name and whichever of age, hometown, job and one line of personality the facts below actually give: use only the facts supplied, never fill in one that is missing), none skipped, merged or summarized. The player's own slot, when listed, is an invitation only, never a toast you voice. ` : "") +
         // ORW-1131 (Ryne, 2026-11-28): one toast a turn, and the room plays off it - the circle is the cast's first moment all together, for getting to know each other.
-        (single ? `This is ONE person's moment: after the toast, let two or three others in the circle react to it and play off it (a joke back, a "wait, you too?", a callback to an earlier toast, a first small spark or friction), from public facts and what was just said only. A reaction is never a second toast and never another houseguest's introduction. ` : "") +
+        (single ? `This is ONE person's moment: after the toast, let two or three others in the circle react to it and play off it in their own voices (humour, a shared detail, a callback to an earlier toast, a first small spark or friction), from public facts and what was just said only. A reaction is never a second toast and never another houseguest's introduction. ` : "") +
         // ORW-1130 (the 11-28 prod premiere: one reply voiced 14 toasts while two were released, and each later release made them toast again): only the speakers named here toast in this reply.
         `ONLY the speaker${single ? "" : "s"} named in this batch toast${single ? "s" : ""} in this reply: everyone else may react, but must not give their toast or introduce themselves (name, hometown, job) — the game hands each toast out, in order, one at a time. ` +
         (ent.playerJustToasted ? `THE PLAYER HAS JUST GIVEN THEIR TOAST (their last message): open by letting the room answer it — a laugh, glasses raised, a line back from one or two houseguests — before the next speaker. ` : "") +

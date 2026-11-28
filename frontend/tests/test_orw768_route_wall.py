@@ -33,7 +33,7 @@ ALLOWED = {
                "pending.offer.from.id", "pending.offer.from.name", "pending.offer.kind", "pending.offer.terms", "pending.ceremony.kind", "pending.ceremony.step", "pending.ceremony.of"},
     "whereabouts": {"whereabouts.room", "whereabouts.roomNames{}", "whereabouts.zone", "whereabouts.present[].id", "whereabouts.present[].name", "whereabouts.present[].tell",
                     "whereabouts.nearby[].room", "whereabouts.nearby[].present[].id", "whereabouts.nearby[].present[].name", "whereabouts.tracked[].id", "whereabouts.tracked[].name",
-                    "whereabouts.tracked[].room", "whereabouts.tracked[].stale", "whereabouts.conspicuous[]", "unavailable"},
+                    "whereabouts.tracked[].room", "whereabouts.tracked[].stale", "whereabouts.conspicuous[]", "whereabouts.privateTalk.with.id", "whereabouts.privateTalk.with.name", "unavailable"},
     "recap": {"recap.finished", "recap.winner.id", "recap.winner.name", "recap.weeksPlayed", "recap.highlights[]", "recap.placement", "recap.margin"},
     "finale": {"finale.stage", "finale.finalists[].id", "finale.finalists[].name", "finale.asking.id", "finale.asking.name", "finale.reveals[].juror.id", "finale.reveals[].juror.name",
                "finale.reveals[].votedFor.id", "finale.reveals[].votedFor.name"},

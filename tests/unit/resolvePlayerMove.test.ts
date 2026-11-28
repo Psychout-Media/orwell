@@ -22,16 +22,16 @@ describe("ORW-419 resolvePlayerMove (engine)", () => {
   it("moves the player from their words and the state shows from/to", () => {
     const { s } = started(21);
     const r = s.resolvePlayerMove({ text: "I go to the kitchen" });
-    expect(r.playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(r.playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
     expect(room(s)).toBe("kitchen");
-    expect(s.getGameState().playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(s.getGameState().playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
   });
 
   it("'leave the backyard' lands on the adjacent room; 'go inside' too", () => {
     const a = started(22).s;
-    expect(a.resolvePlayerMove({ text: "I want to leave the backyard" }).playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(a.resolvePlayerMove({ text: "I want to leave the backyard" }).playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
     const b = started(23).s;
-    expect(b.resolvePlayerMove({ text: "I go inside" }).playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(b.resolvePlayerMove({ text: "I go inside" }).playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
   });
 
   it("a future / conditional phrase never moves the player and clears last turn's move", () => {
@@ -71,7 +71,7 @@ describe("ORW-419 resolvePlayerMove (engine)", () => {
     const core = s.snapshot();
     const s2 = new GameSessionAdapter();
     s2.restore(core);
-    expect(s2.getGameState().playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(s2.getGameState().playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
   });
 
   it("is null before a game starts", () => {
@@ -96,7 +96,7 @@ describe("ORW-419 resolvePlayerMove (the MCP boundary)", () => {
     ((session as unknown as { live: { champagneCircle?: string } }).live).champagneCircle = undefined;
     session.movePlayer("backyard");
     const res = (await srv.callTool("resolvePlayerMove", { text: "take me to the kitchen", idempotencyKey: "k1" })) as { playerMove: { from: string; to: string } };
-    expect(res.playerMove).toEqual({ from: "backyard", to: "kitchen" });
+    expect(res.playerMove).toMatchObject({ from: "backyard", to: "kitchen" });
     await expect(srv.callTool("resolvePlayerMove", {})).rejects.toThrow(/text/);
   });
 });

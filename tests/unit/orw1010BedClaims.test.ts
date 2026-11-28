@@ -61,7 +61,7 @@ describe("ORW-1010: after the circle the narrator's facts carry the beds really 
     const claims = Object.keys(liveOf(s).beds!.owner).filter((w) => w !== "player");
     expect(claims.length, "positive control: houseguests claimed").toBeGreaterThan(0);
     const line = prompt(s).split("\n").find((l) => l.startsWith("- BEDS")) ?? "";
-    expect(line).toMatch(/Beds already claimed \(engine truth, by room\): [^.]*[A-Za-z]/);
-    expect(line).not.toMatch(/already claimed[^:]*: none yet/);
+    expect(line).toMatch(/PER-BED TABLE[^\n]*(?:single|double \d half \d): [A-Z][a-z]+ /); // ORW-1153: the per-bed table, each spot with its real owner
+    expect(line).toMatch(/FREE SPOTS HOUSE-WIDE: \d+ of \d+/);
   });
 });

@@ -566,6 +566,9 @@ def clear_social_runway(user) -> None:
     _SCHEDULE_STEER.pop(key, None)
     _SCHEDULE_ARM.pop(key, None)
     _TURN_SCHEDULE_ARM.pop(key, None)
+    _VOICE_LOG.pop(key, None)  # ORW-1133: a reset forgets who introduced themselves and what they said
+    _VOICE_INTRODUCED.pop(key, None)
+    _PREMIERE_CIRCLE_CLOSED.discard(key)
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
     _PREMIERE_CLOCK_HOLD.pop(key, None)
@@ -1186,6 +1189,7 @@ def note_premiere_turn(user, game_state) -> None:
         stage = _entrance_stage_of(game_state) if phase == "premiere" else None
         if stage in ("entrances", "toast", "tour"):
             _PREMIERE_ENTRANCE_STAGE[key] = stage
+            _PREMIERE_CIRCLE_CLOSED.discard(key)  # ORW-1133: a circle in progress is not closed
             _PREMIERE_MSGS.pop(key, None)
             # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest
             # (the 2026-11-12 live run: in 7 of 10 logged arrival rounds the same-round reply never named them). Remember the arrival with the existing committed-beat voicing check: if the reply names
@@ -1240,6 +1244,8 @@ def note_premiere_turn(user, game_state) -> None:
         except Exception as _fs_exc:
             _failsoft_note("chat_helpers:note_premiere_turn:3", _fs_exc)
             pass
+        if stage == "done" or (phase and phase != "premiere"):
+            _PREMIERE_CIRCLE_CLOSED.add(key)  # ORW-1133: the champagne circle is over: a later self-introduction is a repeat
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
             # phase=premiere for 25+ messages (the stall-nudge was suppressed) while the narrator kept the house "in the morning" - and the clock-driven 48-message Day-1 morning
@@ -1605,6 +1611,51 @@ def turn_room_names(user) -> Optional[dict]:
     return room_names_of(_TURN_WHEREABOUTS.get(user or ""))
 
 
+_WHERE_IS_EVERYONE_RE = re.compile(
+    r"\bwhere\s+(?:is|are|did|have|has|'?s)\s+(?:everyone|everybody|all\s+of\s+(?:them|you|us)|the\s+(?:others|rest)|everyone\s+else|they\s+all|the\s+house)\b|"
+    r"\bwhere\s+(?:is|are)\s+(?:they|everyone)\s+(?:all\s+)?(?:now|at|gone|hiding)\b|\bwhere\s+did\s+(?:everyone|everybody|they\s+all|the\s+others|the\s+rest)\s+go\b|"
+    r"\bwho(?:'s|\s+is)\s+where\b|\bi\s+(?:thought|figured|assumed)\s+(?:everyone|everybody)\s+(?:was|were)\b",
+    re.IGNORECASE)
+
+
+def _where_is_everyone_directive(player_msg, whereabouts) -> Optional[str]:
+    """ORW-1138: the player asks where everyone is (or says where he thought they were): answer from the engine's real whereabouts, the player's room and the rooms in view, never from the scene's memory. Pure.
+    Nobody is placed beyond what the player can see; the rest are somewhere out of sight."""
+    try:
+        if not isinstance(player_msg, str) or not _WHERE_IS_EVERYONE_RE.search(player_msg) or not isinstance(whereabouts, dict):
+            return None
+        room = str(whereabouts.get("room") or "").strip()
+        if not room:
+            return None
+        names = room_names_of(whereabouts)
+        here = [str((r or {}).get("name") or "").strip() for r in (whereabouts.get("present") or []) if isinstance(r, dict) and (r or {}).get("name")]
+        bits = [f"in {room_ref(room, names, article=False, plain=room)} with the player: {', '.join(here) if here else 'nobody'}"]
+        for nb in (whereabouts.get("nearby") or []):
+            if isinstance(nb, dict) and nb.get("room"):
+                pres = [str((r or {}).get("name") or "").strip() for r in (nb.get("present") or []) if isinstance(r, dict) and (r or {}).get("name")]
+                bits.append(f"in {room_ref(str(nb['room']), names, article=False, plain=str(nb['room']))}: {', '.join(pres) if pres else 'nobody'}")
+        return ("THE PLAYER ASKED WHERE EVERYONE IS (engine truth, answer it plainly in the scene before anything else): " + "; ".join(bits)
+                + ". Everyone else is somewhere the player cannot see from here: say so, place none of them in a named room, and correct the player's belief about where the house is if it differs from this.")
+    except Exception:
+        return None
+
+
+def _clock_light_directive(board) -> Optional[str]:
+    """ORW-1138: the part of the day, as one hard line in the per-turn context, so the light, the sky and the mood are written to the engine clock (evening light at night was voiced while the clock said night). Pure; None
+    with no running clock."""
+    try:
+        if not isinstance(board, dict) or not board.get("started", True):
+            return None
+        from routes.briefing import _part_of_day
+        from src.zero_clocks import zero_clocks_on
+        band = _part_of_day(board, bool(zero_clocks_on()))
+        if not band:
+            return None
+        return (f"THE PART OF THE DAY IS {band.upper()} (engine truth): write the light, the sky, the sounds and the mood of this turn to {band}; never call it any other part of the day, and never name another part of the day's light.")
+    except Exception:
+        return None
+
+
 def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -> Optional[str]:
     """ADR 0009 (D3 Part A) — surface the engine's `whereabouts` as an ENFORCEABLE location fact, the
     way `_pending_barrier_directive` clamps the comp-round still-in set.
@@ -1677,6 +1728,18 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         _mf, _mt = room_ref(player_move['from'], names), room_ref(player_move['to'], names)  # ORW-466: the season's names (no theme: "the living room", as before)
         move_line = (f"\nTHE PLAYER JUST MOVED: from {_mf} to {_mt} (the engine has already done it). Open this turn's scene in {_mt}, "
                      f"with exactly the people listed above; never in {_mf}, and never re-describe the walk as still to come.")
+        # ORW-1138: the people the player was with either came along (the engine moved them: a group walk) or stayed behind; say which, never leave it to the scene.
+        _came = [str(x) for x in (player_move.get("came") or []) if x]
+        _stayed = [str(x) for x in (player_move.get("stayed") or []) if x]
+        if _came:
+            move_line += f" CAME ALONG (engine truth, they walked over together): {', '.join(_came)}."
+        _declined = [str(x) for x in (player_move.get("declined") or []) if x]
+        if _declined:  # ORW-1169 (plan 3.10): invited along, they said no
+            move_line += (f" DECLINED THE INVITE (engine truth): {', '.join(_declined)} chose to stay in {_mf} and did not come. Say so in one line, with the reason in their own voice; "
+                          f"do not write them in {_mt}.")
+        if _stayed:
+            move_line += (f" STAYED BEHIND in {_mf} (engine truth): {', '.join(_stayed)}. Say in one line that they stayed there while the player went; "
+                          f"do not write them in {_mt}, and do not have them follow unless the player's words asked it.")
     # ORW-1076: a move the engine refused this turn, with its reason (a shut HOH door, the house gathered, "where?"): without it the narrator wrote the player through the door
     if isinstance(player_move, dict) and player_move.get("refused") and player_move.get("reason"):
         move_line = f"\nTHE PLAYER DID NOT MOVE (engine truth): {player_move['reason']}. Voice that in the scene; the player stays where they are."
@@ -2872,9 +2935,18 @@ def deferred_fold_count(user) -> int:
 _ADVANCE_ESCALATION: dict = {}
 
 
-def _arm_advance_escalation(user) -> None:
-    """Arm the lull-independent forced-advance escalation for `user` (S1b). Idempotent."""
-    _ADVANCE_ESCALATION[_beat_seq_key(user)] = True
+def _arm_advance_escalation(user, reason: str = "unspecified") -> None:
+    """Arm the lull-independent forced-advance escalation for `user` (S1b). Idempotent.
+    ORW-1166: the arming reason and the beatSeq at arm time are recorded (and logged) on every arm; the
+    force gate reads them to confirm the beat is still the one that stalled."""
+    _ADVANCE_ESCALATION[_beat_seq_key(user)] = {"reason": str(reason), "beat_seq": last_beat_seq(user)}
+    logger.info("[orwell] S1b escalation armed reason=%s beat_seq=%s", reason, last_beat_seq(user))
+
+
+def advance_escalation_info(user):
+    """ORW-1166: the {reason, beat_seq} record of the armed S1b escalation, or None."""
+    v = _ADVANCE_ESCALATION.get(_beat_seq_key(user))
+    return v if isinstance(v, dict) else None
 
 
 def advance_escalation_armed(user) -> bool:
@@ -4330,6 +4402,131 @@ def note_eviction_result_for_voicing(user, adv) -> None:
         pass
 
 
+# ORW-1133 (Ryne, 2026-11-28 prod game, "Valerie just introduced herself to me for like the 3rd time ... how people are responding feels so unnatural"): nothing checked what a houseguest said
+# against what the SAME houseguest already said. After the champagne circle closed, houseguests recited name / hometown / job again and repeated their own lines word for word. This is the deterministic
+# check: it reads the tagged dialogue of every reply, remembers who has introduced themselves and what each speaker said in the last few replies, and when a reply re-introduces someone (circle closed,
+# or already introduced) or repeats one of their own clauses, it counts a belt and re-grounds the next turn with the exact offence. Never rewrites the reply; never raises.
+_VOICE_LOG: dict = {}           # runway key -> the last _VOICE_LOG_REPLIES replies' {speaker full name: [normalised clauses]}
+_VOICE_INTRODUCED: dict = {}    # runway key -> full names a reply has shown introducing themselves
+_PREMIERE_CIRCLE_CLOSED: set = set()  # runway keys whose champagne circle is over (entrance stage done, or the game is past the premiere): any self-introduction after that is a repeat
+_VOICE_LOG_REPLIES = 4
+_VOICE_CLAUSE_MIN_WORDS = 7
+_TAGGED_LINE_RE = re.compile(r"^\s*@\[([^\]\n]{2,60})\]\s*[\u2014\u2013-]+\s*(.*)$")
+_VOICE_QUOTE_RE = re.compile(r"[\"\u201c]([^\"\u201d]*)[\"\u201d]")
+_INTRO_FACT_RE = re.compile(r"\b(?:I run|I own|I work|I manage|I teach|I'm a|I am a|I\u2019m a)\b|[A-Z][\w'.-]+(?: [A-Z][\w'.-]+)*,\s+[A-Z][\w'.-]+(?: [A-Z][\w'.-]+)*\s*[.\u2014\u2013-]")
+
+
+def _voice_norm(text: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9' ]+", " ", (text or "").lower().replace("\u2019", "'")).split())
+
+
+def _tagged_speech(narration: str) -> list:
+    """ORW-1133: [(speaker full name, [quoted spans of that tagged line])] for each `@[Name] - ...` line of a reply. Pure."""
+    out = []
+    for ln in (narration or "").split("\n"):
+        m = _TAGGED_LINE_RE.match(ln)
+        if not m:
+            continue
+        spans = [x.strip() for x in _VOICE_QUOTE_RE.findall(m.group(2)) if x.strip()]
+        if spans:
+            out.append((m.group(1).strip(), spans))
+    return out
+
+
+def _speech_clauses(spans) -> list:
+    """The normalised clauses (split on sentence ends, commas, colons, dashes) of >= _VOICE_CLAUSE_MIN_WORDS words: a repeated half-sentence counts as a repeat."""
+    out = []
+    for sp in spans:
+        for c in re.split(r"[.!?;:,\u2014\u2013]+|\s-\s", sp):
+            n = _voice_norm(c)
+            if len(n.split()) >= _VOICE_CLAUSE_MIN_WORDS:
+                out.append(n)
+    return out
+
+
+def _is_self_introduction(full: str, spans) -> bool:
+    """A tagged line whose first quoted words are the speaker's own name ("Valerie." / "Jace Herndon." / "I'm Ana") and whose quotes then state a hometown or job. Pure."""
+    parts = full.split()
+    if not parts or not spans:
+        return False
+    first, last = re.escape(parts[0]), re.escape(parts[-1])
+    head = spans[0]
+    named = re.match(rf"\s*{first}(?:\s+{last})?\s*[.,!\u2014\u2013-]", head + ".") or re.search(rf"\b(?:I'm|I am|I\u2019m|my name is|name's|name is)\s+{first}\b", head, re.I)
+    return bool(named and _INTRO_FACT_RE.search(" ".join(spans)))
+
+
+def voice_repeat_findings(user, narration: str) -> dict:
+    """ORW-1133: {"reintro": [names], "repeat": [(name, clause)]} for this reply against what the game has already heard. Pure read of the per-game voice log. Never raises."""
+    found = {"reintro": [], "repeat": []}
+    try:
+        key = _runway_key(user)
+        closed = key in _PREMIERE_CIRCLE_CLOSED
+        introduced = _VOICE_INTRODUCED.get(key) or set()
+        prior = {}
+        for rec in _VOICE_LOG.get(key) or []:
+            for who, cl in rec.items():
+                prior.setdefault(who, set()).update(cl)
+        for who, spans in _tagged_speech(narration):
+            if _is_self_introduction(who, spans) and (closed or who in introduced):
+                if who not in found["reintro"]:
+                    found["reintro"].append(who)
+                continue
+            for c in _speech_clauses(spans):
+                if c in prior.get(who, ()):
+                    found["repeat"].append((who, c))
+                    break
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:voice_repeat_findings:1", _fs_exc)
+    return found
+
+
+def note_voiced_lines(user, narration: str) -> None:
+    """ORW-1133: remember who introduced themselves in this reply and each speaker's clauses, for the repeat check on later replies. Never raises."""
+    try:
+        key = _runway_key(user)
+        rec: dict = {}
+        intro = _VOICE_INTRODUCED.setdefault(key, set())
+        for who, spans in _tagged_speech(narration):
+            if _is_self_introduction(who, spans):
+                intro.add(who)
+            cl = _speech_clauses(spans)
+            if cl:
+                rec.setdefault(who, []).extend(cl)
+        log = _VOICE_LOG.setdefault(key, [])
+        log.append(rec)
+        del log[:-_VOICE_LOG_REPLIES]
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_voiced_lines:1", _fs_exc)
+
+
+def _voice_repeat_directive(found: dict) -> Optional[str]:
+    parts = []
+    if found.get("reintro"):
+        names = _join_names(found["reintro"][:4])
+        parts.append(f"STOP RE-INTRODUCING PEOPLE: {names} already introduced themselves (the toast is over); your last turn had them recite their name, hometown and job again. Introductions are finished: "
+                     "no houseguest states their name, hometown or job as if meeting the player for the first time.")
+    if found.get("repeat"):
+        who, clause = found["repeat"][0]
+        parts.append(f"STOP REPEATING LINES: your last turn had {who} say again \"{clause[:70]}\", which they had already said. Every line must be new.")
+    if not parts:
+        return None
+    return " ".join(parts) + " Open your next turn by answering what the player's NEWEST message says, in the moment, with something the houseguests have not yet said."
+
+
+def check_voice_repeats(user, narration: str) -> None:
+    """ORW-1133: post-turn. Flag a reply that re-introduced someone or repeated a houseguest's own clause (counted belt + next-turn re-ground), then remember the reply. Never raises."""
+    try:
+        found = voice_repeat_findings(user, narration)
+        directive = _voice_repeat_directive(found)
+        if directive:
+            _reground_enqueue(_desync_key(user), directive)
+            _note_belt(user, "repeated-voice-reground")
+            logger.warning("[orwell] repeated voice detected for user=%s (reintro=%s, repeat=%s) - re-grounding next turn", user, found["reintro"], [w for w, _ in found["repeat"]])
+        note_voiced_lines(user, narration)
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:check_voice_repeats:1", _fs_exc)
+
+
 async def record_post_turn_desync_check(user, narration: str, this_turn_progressed: bool = True) -> None:
     """Post-turn layer of the desync spine: capture the AFTER signature, diff it against the
     BEFORE signature stored at the start of this turn, and when the narration asserted an outcome
@@ -4346,6 +4543,7 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
     try:
         _dkey = _desync_key(user)  # #1045: stable key — functions single-tenant (user=None) too.
         note_premiere_narration(user, narration)  # ORW-704: which arrivals / toast batch this reply named
+        check_voice_repeats(user, narration)  # ORW-1133: a houseguest re-introducing themselves or repeating their own line
         _cnote = _CEREMONY_UNVOICED.pop(_dkey, None)
         if _cnote and narration and _ceremony_count_unvoiced(narration, _cnote) and not _ceremony_beat_unvoiced(narration, _cnote):
             _c = _cnote["counts"]
@@ -4735,6 +4933,15 @@ def _is_aside_only_reply(text: str) -> bool:
     return is_aside_only(text)
 
 
+def _presence_staged_absent(narration: str, facts: dict) -> list:
+    """ORW-1148: the houseguests the narration STAGES in the player's scene whom the engine has elsewhere in the house or next door (not the evicted: they cannot be walked in). Closed-set: the same
+    unique-name staging test the other presence guards use."""
+    roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
+    counts = _first_name_counts(roster)
+    pool = (set(facts["active_offscene"]) | set(facts.get("adjacent") or ())) - set(facts.get("exempt") or ())
+    return sorted(n for n in pool if _name_staged_unique(narration or "", n, counts))[:_PRESENCE_MOVE_MAX_NAMES]
+
+
 def _presence_omission_directive(narration: str, facts: dict) -> Optional[str]:
     """PARITY-8 — the inverse desync: the engine places one or more houseguests in the player's OWN
     room, but the scene never mentions ANY of them at all (the narration substituted its own cast).
@@ -4786,6 +4993,28 @@ async def record_post_turn_presence_check(user, narration: str) -> None:
         if isinstance(before, dict) and before.get("room") and before.get("room") != facts["room"]:
             return
         directive = _presence_desync_directive(narration or "", facts)
+        staged = _presence_staged_absent(narration or "", facts)  # ORW-1148: who the story put in the room while the engine has them elsewhere
+        if staged:
+            from src import scene_reconcile as _sr
+            _tok = before if isinstance(before, dict) else _dkey
+            _sr.note_contradiction(_dkey, _tok, facts["room"], staged)
+            if _sr.should_reconcile(_dkey):
+                _res = await _sr.reconcile(user, facts["room"], staged, state, orwell_engine, npc_rooms=facts.get("npc_rooms"), room_names=facts.get("room_names"),
+                                           here_names=sorted(facts.get("room_present") or ()))
+                if _res["directive"]:
+                    _sr.mark_handled(_dkey, _res["mode"])
+                    if _res.get("last") is not None:
+                        _refresh_beat_seq(user, _res["last"])
+                    _reground_remove(_dkey, directive)
+                    _reground_enqueue(_dkey, _res["directive"])
+                    _note_belt(user, "scene-reconcile-" + _res["mode"], len(_res["moved"]) or len(_res["refused"]))
+                    logger.warning("[orwell] scene reconcile for user=%s: %s (moved=%d refused=%d)", user, _res["mode"], len(_res["moved"]), len(_res["refused"]))
+                    directive = None
+            if directive and not _sr.reground_allowed(_dkey):
+                directive = None  # ORW-1148: the same fact is never re-grounded twice in a row
+        else:
+            from src import scene_reconcile as _sr
+            _sr.note_clean_turn(_dkey, before if isinstance(before, dict) else _dkey)
         if directive:
             _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
             logger.warning("[orwell] presence desync detected for user=%s — re-grounding next turn", user)
@@ -4936,6 +5165,12 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         try:
             _dkey = _desync_key(user)
             directive = _presence_desync_directive(text, facts)  # reuse the tested re-ground wording
+            if directive:
+                from src import scene_reconcile as _sr
+                _before = _LAST_BEAT_SIG.get(_dkey)
+                _sr.note_contradiction(_dkey, _before if isinstance(_before, dict) else _dkey, facts["room"], dropped)  # ORW-1148: one count per turn, shared with the post-turn check
+                if not _sr.reground_allowed(_dkey):
+                    directive = None  # ORW-1148: the same fact is never re-grounded twice in a row; the post-turn check resolves it
             if directive:
                 _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
             logger.warning(
@@ -9730,7 +9965,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 if not _is_stale_beat_error(_adv_e2):
                     raise
                 await _handle_stale_beat(user, _adv_e2)
-                _arm_advance_escalation(user)  # S1b — the beat is still un-advanced; force next round
+                _arm_advance_escalation(user, "double-stale-409")  # S1b — the beat is still un-advanced; force next round
                 try:
                     from src import log_rings as _lr_adv
                     _lr_adv.record_soft_failure(
@@ -10344,6 +10579,13 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _loc
             # ADR 0009 (D1): pin this same in-memory snapshot as the per-turn occupancy freeze (below).
             freeze_capture_whereabouts(user, game_state.get("whereabouts"))
+            # ORW-1138: the question "where is everyone" is answered from the engine's whereabouts; the part of the day rides the per-turn context as one hard line
+            _wie = _where_is_everyone_directive(player_msg, game_state.get("whereabouts"))
+            if _wie:
+                gm_prompt = gm_prompt + "\n\n" + _wie
+            _clk = _clock_light_directive(game_state)
+            if _clk:
+                gm_prompt = gm_prompt + "\n\n" + _clk
         except Exception as e:
             logger.warning("[orwell] location grounding skipped for user=%s: %s", _gkey, e)
         # ORW-934: the engine walked the player's search for a houseguest this turn (before the narrator): the narrator voices the legs as one passage. Best-effort / fail-open.
@@ -10550,6 +10792,19 @@ async def apply_game_framing(
             try:
                 mp = await orwell_engine.get_moment_prompt(game_state.get("moment"), user=user)
                 pre_prompt = (mp or {}).get("systemPrompt") or PRE_GAME_PROMPT
+                # ORW-1126 (Ryne's prod casting, 2026-11-28): the account photo carries over to a new season, but the NEW season's casting file never recorded it, so the CASTING STATUS still listed the
+                # photo as step one and the producer asked for a photo the player already had (and said "the photo slot is still open"). Record the carried-over photo on the engine's casting file
+                # first, then re-read the prompt, so the status and the on-file note agree. Only when the status still asks for it; fail-open.
+                try:
+                    _cast = (game_state.get("casting") or {}) if isinstance(game_state, dict) else {}
+                    _asks_photo = "NEXT STEP: their cast photo" in pre_prompt or "castPhoto" in (_cast.get("missing") or [])
+                    if _asks_photo and "castPhoto" not in (_cast.get("known") or {}) and _player_photo_on_file(user):
+                        await orwell_engine.update_casting(dict(_CARRIED_PHOTO_FIELDS), user=user)
+                        _note_belt(user, "carried-photo-recorded")
+                        mp = await orwell_engine.get_moment_prompt(game_state.get("moment"), user=user)
+                        pre_prompt = (mp or {}).get("systemPrompt") or pre_prompt
+                except Exception as _cp_e:
+                    logger.warning("[orwell] carried cast photo not recorded for user=%s: %s", _gkey, _cp_e)
                 _stash_producer_name(user, mp)  # #1626: the casting producer byline for the client
             except Exception as e:
                 logger.warning("[orwell] interview moment-prompt fetch failed for user=%s: %s", _gkey, e)
@@ -10978,6 +11233,34 @@ def mark_message_phase(message, phase: str) -> None:
         logger.warning("Failed to mark message phase=%s", phase, exc_info=True)
 
 
+def _current_season_rows(history):
+    """ORW-1051: the newest season's rows of a chat (see core.models.current_season_rows); what every prompt-side reader of the history uses."""
+    from core.models import current_season_rows
+    return current_season_rows(history)
+
+
+def _earlier_season_played(hist) -> bool:
+    """ORW-718/ORW-1051: did an EARLIER season play in this chat before the trailing line? True when a `game`-stamped row sits above
+    it with no `season_start` row between (the newest season's own first line closes the search: that season is the current one)."""
+    for m in reversed(list(hist or [])[:-1]):
+        md = getattr(m, "metadata", None) or {}
+        if md.get("season_start"):
+            return False
+        if md.get("phase") == "game":
+            return True
+    return False
+
+
+def _stamp_season_start(msg) -> None:
+    from core.models import _session_manager as _sm
+    if _sm is not None and hasattr(_sm, "mark_message_season_start"):
+        _sm.mark_message_season_start(msg)
+    else:
+        if msg.metadata is None:
+            msg.metadata = {}
+        msg.metadata["season_start"] = True
+
+
 def mark_new_season_start(sess) -> bool:
     """ORW-718: stamp the trailing user line `season_start` when an EARLIER season was played in this chat (a `game`-stamped
     line after the newest season start, or from the top when there is none). Called only on a pre-game turn the engine
@@ -10988,23 +11271,28 @@ def mark_new_season_start(sess) -> bool:
     last = hist[-1]
     if (getattr(last, "metadata", None) or {}).get("season_start"):
         return False
-    for m in reversed(hist[:-1]):
-        md = getattr(m, "metadata", None) or {}
-        if md.get("season_start"):
-            return False
-        if md.get("phase") == "game":
-            from core.models import _session_manager as _sm
-            if _sm is not None and hasattr(_sm, "mark_message_season_start"):
-                _sm.mark_message_season_start(last)
-            else:
-                if last.metadata is None:
-                    last.metadata = {}
-                last.metadata["season_start"] = True
-            return True
+    if _earlier_season_played(hist):
+        _stamp_season_start(last)
+        return True
     return False
 
 
-_PENDING_SEASON_BOUNDARY: set = set()  # ORW-1051: owners whose restart ran with no chat bound; the next turn's user line opens the season
+_PENDING_SEASON_BOUNDARY: set = set()  # ORW-1051: owners whose season was just created or reset; the next turn's user line opens the season in a chat that already played one
+
+
+def _remember_season_boundary(user) -> None:
+    """ORW-1051: EVERY door that creates or resets a season (the chat tool, /next-season with keep, /new-game, God Mode) fires this through
+    `orwell_engine.on_season_reset`. The next turn's user line is the new season's first line IF this chat already played one
+    (`_consume_pending_season_boundary` checks that), so a keep-character restart, which goes straight to live play with no casting turn
+    to trip `mark_new_season_start`, cuts the old season out of the narrator's window too."""
+    _PENDING_SEASON_BOUNDARY.add(str(user))
+
+
+try:
+    from src import orwell_engine as _oe_for_boundary
+    _oe_for_boundary.on_season_reset(_remember_season_boundary)
+except Exception as _fs_exc:
+    _failsoft_note("chat_helpers:module:orw1051", _fs_exc)
 
 
 def mark_season_boundary_for_owner(owner) -> bool:
@@ -11019,12 +11307,8 @@ def mark_season_boundary_for_owner(owner) -> bool:
         hist = getattr(sess, "history", None) or []
         for m in reversed(hist):
             if getattr(m, "role", None) == "user":
-                if _sm is not None and hasattr(_sm, "mark_message_season_start"):
-                    _sm.mark_message_season_start(m)
-                else:
-                    if m.metadata is None:
-                        m.metadata = {}
-                    m.metadata["season_start"] = True
+                _stamp_season_start(m)
+                _PENDING_SEASON_BOUNDARY.discard(str(owner))  # this restart is stamped; the next turn must not open a second season
                 return True
     except Exception:
         logger.debug("[orw-1051] bound-chat season stamp failed", exc_info=True)
@@ -11033,19 +11317,15 @@ def mark_season_boundary_for_owner(owner) -> bool:
 
 
 def _consume_pending_season_boundary(sess, user) -> None:
-    """ORW-1051: apply a remembered restart to this turn's trailing user line (see mark_season_boundary_for_owner)."""
+    """ORW-1051: apply a remembered season create/reset (see `_remember_season_boundary`) to this turn's trailing user line. The line opens a NEW
+    season only when this chat already played one; a first season's own creation, or a chat that never played, only clears the marker."""
     if str(user) not in _PENDING_SEASON_BOUNDARY:
         return
     _PENDING_SEASON_BOUNDARY.discard(str(user))
     hist = getattr(sess, "history", None) or []
-    if hist and getattr(hist[-1], "role", None) == "user":
-        from core.models import _session_manager as _sm
-        if _sm is not None and hasattr(_sm, "mark_message_season_start"):
-            _sm.mark_message_season_start(hist[-1])
-        else:
-            if hist[-1].metadata is None:
-                hist[-1].metadata = {}
-            hist[-1].metadata["season_start"] = True
+    if hist and getattr(hist[-1], "role", None) == "user" and not (getattr(hist[-1], "metadata", None) or {}).get("season_start"):
+        if _earlier_season_played(hist):
+            _stamp_season_start(hist[-1])
 
 
 def discard_last_user_message(sess) -> None:
@@ -11551,6 +11831,20 @@ async def _resolve_model_id(sess) -> Optional[str]:
         normalize_model_id, sess.endpoint_url, sess.model)
 
 
+# ORW-1126: the ONLY casting write the casting framing makes (the b66 sanctioned-site marker): the photo-step marker for a photo already on file, never a substantive casting answer.
+_CARRIED_PHOTO_FIELDS = (("castPhoto", "uploaded"),)
+
+
+def _player_photo_on_file(user) -> bool:
+    """The player already has a cast photo: an uploaded or finalized headshot, or the account photo that survives a new-season scrub. Never raises."""
+    try:
+        from src import orwell_portraits
+        _intake = orwell_portraits.intake_status(user)
+        return bool(_intake.get("present") or _intake.get("finalized")) or bool(orwell_portraits.user_avatar_path(user))
+    except Exception:
+        return False
+
+
 async def build_chat_context(
     sess,
     request,
@@ -11607,6 +11901,13 @@ async def build_chat_context(
     user = effective_user(request)
     uprefs = load_prefs_for_user(user)
 
+    # ORW-1051: a season was created or reset since the last turn; if this chat already played one, THIS line opens the new season. Done before
+    # anything below reads the history (the player-move parser's previous reply, the show brief's scene tail, the narrator's window).
+    try:
+        _consume_pending_season_boundary(sess, user)
+    except Exception:
+        logger.debug("[orw-1051] pending season boundary skipped", exc_info=True)
+
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
     _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user)
@@ -11618,11 +11919,20 @@ async def build_chat_context(
         from src.settings import game_build_enabled as _gbe_pm
         if _gbe_pm():
             from src.orwell_player_move import resolve_player_move_before_narrator
-            _prev_reply = next((_game_narration(m.content) for m in reversed(getattr(sess, "history", None) or []) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
+            _prev_reply = next((_game_narration(m.content) for m in reversed(_current_season_rows(getattr(sess, "history", None))) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
             from src.orwell_player_move import act_first_before_narrator
+            # ORW-1168: an invitation along ("come with me", "invite her outside") commits the houseguest's walk as well as the player's, before the narrator speaks.
+            from src.orwell_player_move import escort_before_narrator, apply_escort
+            _recent_user = [m.content for m in reversed(_current_season_rows(getattr(sess, "history", None))) if getattr(m, "role", None) == "user" and isinstance(m.content, str)][:3]
+            _escort = await escort_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply, recent_user=_recent_user)
             # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
             if not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
                 await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
+            apply_escort(user, _escort, client_msg_id)
+            # ORW-1011 C3 (flag ORWELL_COMMIT_FROM_PLAN, default OFF): plan, check and commit the scene record and the planned houseguest moves before the reply.
+            from src import plan_commit as _pc_c3
+            if _pc_c3.enabled():
+                await _pc_c3.commit_before_narrator(message, user, sess=sess, previous_reply=_prev_reply)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no
@@ -11677,11 +11987,11 @@ async def build_chat_context(
     # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF): the last lines the player saw, for the brief's "how the
     # last scene ended". Off ⇒ the framing call is exactly as before (no extra keyword).
     from src import orwell_show_brief as _show_brief
-    _brief_kw = ({"last_scene_tail": _show_brief.last_scene_tail(getattr(sess, "history", None))}
+    _brief_kw = ({"last_scene_tail": _show_brief.last_scene_tail(_current_season_rows(getattr(sess, "history", None)))}
                  if _show_brief.show_brief_enabled() else {})
     if _brief_kw:
         # K6 §5.1: after a restart, pick up what the narrator last saw from the newest assistant row that carries it.
-        _show_brief.adopt_history_seen(user, getattr(sess, "history", None))
+        _show_brief.adopt_history_seen(user, _current_season_rows(getattr(sess, "history", None)))
     engine_available, game_active, feed_down = await apply_game_framing(
         preface, user, incognito,
         session_id=session_id,                              # P2: re-entry on a fresh context
@@ -11708,10 +12018,6 @@ async def build_chat_context(
     # ORW-224b: only when the turn is actually FRAMED as casting (the game build with the engine up, or feeds-down),
     # the same condition the assistant-reply stamp uses (`ctx.framed and not ctx.game_active`). In the workspace
     # build (ORWELL_GAME_BUILD=0) there is no casting interview, so no stamp, and compaction stays available there.
-    try:
-        _consume_pending_season_boundary(sess, user)
-    except Exception:
-        logger.debug("[orw-1051] pending season boundary skipped", exc_info=True)
     if not game_active and framed and getattr(sess, "history", None):
         _last = sess.history[-1]
         if getattr(_last, "role", None) == "user":
