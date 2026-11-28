@@ -799,6 +799,7 @@ def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
     a move or a bed claim needs a room the player's own words ground (`grounded_ctx`), a search needs an active houseguest's name in the words, a sleep needs a sleep word, and a step
     answer (advance, comp, deal) has no such floor, so any of those offered keeps the call."""
     o = offered(ctx)
+    gate_log.note_ctx(text, people=ctx.get("people"), rooms=rooms, here=ctx.get("here"), offered=o)  # ORW-1185/1186: the live roster and rooms beside the code, for an exact corpus
     if o["advance"] or o["comp"] or o["deal"]:
         return False
     if o["follow"] and (accept_intent(text, ctx) or _CUE.search(strip_quotes(text))):

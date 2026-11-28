@@ -53,3 +53,21 @@ def test_plain_sleep_act_is_not_step_vetoed(text):
 @pytest.mark.parametrize("text", SLEEP_KEEP)
 def test_not_a_sleep_act_stays_step_vetoed(text):
     assert af.step_vetoed(text, "turnIn")
+
+
+def test_can_commit_nothing_notes_the_live_context_by_code_only():
+    from src import gate_log
+    gate_log.reset()
+    ctx = dict(CTX, people=["Kai Lorn", "Mara"])
+    af.can_commit_nothing("zzz plain words", ["kitchen", "backyard"], ctx)
+    row = gate_log.ctx_of(gate_log.code_of("zzz plain words"))
+    assert row["people"] == ["kai", "mara"] and row["rooms"] == ["kitchen", "backyard"] and row["here"] == "living-room"
+    assert "zzz" not in repr(gate_log.ctx_export())
+
+
+def test_corpus_row_replays_with_the_live_roster():
+    from src import gate_corpus
+    text = "go find kai"  # no capital letter: the offline guess names nobody
+    assert gate_corpus.row_for(text, ["search"])["gates"]["search-cue"] is False
+    row = gate_corpus.row_for(text, ["search"], live_ctx={"people": ["kai"], "rooms": []})
+    assert row["gates"]["search-cue"] is True and row["live"] is True
