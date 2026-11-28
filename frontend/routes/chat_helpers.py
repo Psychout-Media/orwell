@@ -4792,6 +4792,15 @@ def _is_aside_only_reply(text: str) -> bool:
     return is_aside_only(text)
 
 
+def _presence_staged_absent(narration: str, facts: dict) -> list:
+    """ORW-1148: the houseguests the narration STAGES in the player's scene whom the engine has elsewhere in the house or next door (not the evicted: they cannot be walked in). Closed-set: the same
+    unique-name staging test the other presence guards use."""
+    roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
+    counts = _first_name_counts(roster)
+    pool = (set(facts["active_offscene"]) | set(facts.get("adjacent") or ())) - set(facts.get("exempt") or ())
+    return sorted(n for n in pool if _name_staged_unique(narration or "", n, counts))[:_PRESENCE_MOVE_MAX_NAMES]
+
+
 def _presence_omission_directive(narration: str, facts: dict) -> Optional[str]:
     """PARITY-8 — the inverse desync: the engine places one or more houseguests in the player's OWN
     room, but the scene never mentions ANY of them at all (the narration substituted its own cast).
@@ -4843,6 +4852,28 @@ async def record_post_turn_presence_check(user, narration: str) -> None:
         if isinstance(before, dict) and before.get("room") and before.get("room") != facts["room"]:
             return
         directive = _presence_desync_directive(narration or "", facts)
+        staged = _presence_staged_absent(narration or "", facts)  # ORW-1148: who the story put in the room while the engine has them elsewhere
+        if staged:
+            from src import scene_reconcile as _sr
+            _tok = before if isinstance(before, dict) else _dkey
+            _sr.note_contradiction(_dkey, _tok, facts["room"], staged)
+            if _sr.should_reconcile(_dkey):
+                _res = await _sr.reconcile(user, facts["room"], staged, state, orwell_engine, npc_rooms=facts.get("npc_rooms"), room_names=facts.get("room_names"),
+                                           here_names=sorted(facts.get("room_present") or ()))
+                if _res["directive"]:
+                    _sr.mark_handled(_dkey, _res["mode"])
+                    if _res.get("last") is not None:
+                        _refresh_beat_seq(user, _res["last"])
+                    _reground_remove(_dkey, directive)
+                    _reground_enqueue(_dkey, _res["directive"])
+                    _note_belt(user, "scene-reconcile-" + _res["mode"], len(_res["moved"]) or len(_res["refused"]))
+                    logger.warning("[orwell] scene reconcile for user=%s: %s (moved=%d refused=%d)", user, _res["mode"], len(_res["moved"]), len(_res["refused"]))
+                    directive = None
+            if directive and not _sr.reground_allowed(_dkey):
+                directive = None  # ORW-1148: the same fact is never re-grounded twice in a row
+        else:
+            from src import scene_reconcile as _sr
+            _sr.note_clean_turn(_dkey, before if isinstance(before, dict) else _dkey)
         if directive:
             _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
             logger.warning("[orwell] presence desync detected for user=%s — re-grounding next turn", user)
@@ -4993,6 +5024,12 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         try:
             _dkey = _desync_key(user)
             directive = _presence_desync_directive(text, facts)  # reuse the tested re-ground wording
+            if directive:
+                from src import scene_reconcile as _sr
+                _before = _LAST_BEAT_SIG.get(_dkey)
+                _sr.note_contradiction(_dkey, _before if isinstance(_before, dict) else _dkey, facts["room"], dropped)  # ORW-1148: one count per turn, shared with the post-turn check
+                if not _sr.reground_allowed(_dkey):
+                    directive = None  # ORW-1148: the same fact is never re-grounded twice in a row; the post-turn check resolves it
             if directive:
                 _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
             logger.warning(
