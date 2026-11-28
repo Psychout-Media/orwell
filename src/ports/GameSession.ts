@@ -2306,6 +2306,8 @@ export interface WhereaboutsView {
   moveRefused?: { reason: "ambiguous-room" | "unknown-room" | "hoh-door"; asked: string; candidates?: string[]; detail?: string };
   /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
   roomNames?: Partial<Record<string, string>>;
+  /** ORW-1150: the real beds in the player's room (a bedroom only): how many singles and how many doubles. Bed words in the narration come from this. */
+  bedLayout?: { singles: number; doubles: number };
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
   roomLook?: string;
   /** ORW-654 / 0206: present only on the turn the player first steps into this room (a one-time card). */
