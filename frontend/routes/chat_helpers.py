@@ -1704,6 +1704,10 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         _stayed = [str(x) for x in (player_move.get("stayed") or []) if x]
         if _came:
             move_line += f" CAME ALONG (engine truth, they walked over together): {', '.join(_came)}."
+        _declined = [str(x) for x in (player_move.get("declined") or []) if x]
+        if _declined:  # ORW-1169 (plan 3.10): invited along, they said no
+            move_line += (f" DECLINED THE INVITE (engine truth): {', '.join(_declined)} chose to stay in {_mf} and did not come. Say so in one line, with the reason in their own voice; "
+                          f"do not write them in {_mt}.")
         if _stayed:
             move_line += (f" STAYED BEHIND in {_mf} (engine truth): {', '.join(_stayed)}. Say in one line that they stayed there while the player went; "
                           f"do not write them in {_mt}, and do not have them follow unless the player's words asked it.")

@@ -663,7 +663,7 @@ _BROWSER_STATUS_SHAPE = {
 #     NOT read by any screen: counts, companions, turnsHere, roomLook, roomCard, search, houseEvent, sinceSend, and a tracked sighting's confidence / pathway / sinceTurns (a belief's number never crosses).
 _BROWSER_WHEREABOUTS_SHAPE = {
     "whereabouts": {"room": _T, "roomNames": {"*": _T}, "zone": _T, "present": [{"id": _T, "name": _T, "tell": _T}], "nearby": [{"room": _T, "present": [_NAMED]}],
-                    "tracked": [{"id": _T, "name": _T, "room": _T, "stale": _T}], "conspicuous": [_T]},
+                    "tracked": [{"id": _T, "name": _T, "room": _T, "stale": _T}], "conspicuous": [_T], "privateTalk": {"with": _NAMED}},
     "unavailable": _T,
 }
 #   /recap (the retrospective panel: finished, winner, weeksPlayed, highlights, placement, margin), /finale (the finale panel: stage, finalists, asking, reveals; NOT the `bearing` of the asker, NOT the winner).
