@@ -268,7 +268,11 @@ async def invite_context(text: Any, user: Optional[str], previous_reply: Optiona
             return None
         return {**inv, "ctx": {**ctx, "invite": {k: inv.get(k) for k in ("id", "name", "room", "source", "line")}}}
     except Exception as exc:
-        logger.warning("[orwell] invite context failed (fail-soft): %s", type(exc).__name__)
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("follow:invite-context-failed", exc, corrected="no invitation is read; the ordinary path runs", user=user)
+        except Exception:  # failsoft-ok: the recorder itself is down
+            logger.warning("[orwell] invite context failed (fail-soft): %s", type(exc).__name__)
         return None
 
 
