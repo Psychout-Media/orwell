@@ -104,7 +104,7 @@ _PLAIN_ROOM_WORDS = (
     (r"dining room|dining table", ("dining-room",)),
     (r"hallway|corridor", ("hallway",)),
     (r"bedroom|bunk ?room|bunks?", ("bedroom-a", "bedroom-b", "bedroom-c")),
-    (r"bathroom", ("bathroom",)),
+    (r"bathroom|shower", ("bathroom",)),  # ORW-1180: "the shower" is the bathroom
     (r"hoh room|hoh suite", ("hoh-room",)),
     (r"storage room", ("storage-room",)),
     (r"diary room", ("diary-room",)),

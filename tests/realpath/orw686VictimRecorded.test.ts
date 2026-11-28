@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
-import { type Stop, firstStop, playUntil, wfScan } from "./playedSeason";
+import { type Stop, firstStop, playUntil, wfScan, withinEarshot } from "./playedSeason";
 import { firstSeedWhere } from "../support/firstSeedWhere";
 import { AssuranceLedger } from "../../src/engine/assurances";
 import { answerPending } from "../../features/support/answerPending";
@@ -20,7 +20,8 @@ const dealsOf = (s: Stop): Deal[] => s.sess.deals.forParty(PLAYER) as Deal[];
 /** Who is in the room with the player, and awake, for a scene recorded now: the engine's own witness roster (the room as it was when the player last spoke). */
 const room = (s: Stop): string[] => {
   const occ = (s.sess.sendTimeOccupancy() ?? s.sess.presence) as Map<string, string>; const here = occ.get(PLAYER); const awake = s.sess.awakeNow() as Set<string> | null;
-  return [...occ].filter(([id, r]) => r === here && id !== PLAYER && (!awake || awake.has(id))).map(([id]) => id); // awake: a scene's named listeners must be up to hear it
+  const hear = withinEarshot(s); // ORW-1167: a listener in the far zone of the yard is no witness
+  return [...occ].filter(([id, r]) => r === here && id !== PLAYER && hear.has(id) && (!awake || awake.has(id))).map(([id]) => id); // awake: a scene's named listeners must be up to hear it
 };
 const betrayed = (s: Stop): string[] => dealsOf(s).filter((d) => d.status === "broken" && d.brokenBy === PLAYER).map((d) => d.parties.find((p) => p !== PLAYER)!).filter((v) => s.sess.livingIds().includes(v));
 const quiet = (s: Stop): boolean => !s.sess.getGameState().pending && !s.sess.live?.ceremony;

@@ -4511,6 +4511,19 @@ def _player_summoned(last_user, name) -> bool:
     return bool(_SUMMON_RE.search(text))
 
 
+def _player_invited_unnamed(last_user, roster_names) -> bool:
+    """ORW-1168: the player's message invites someone along ("do you wanna come with?", "invite her outside", "bring them out") and names NO houseguest, so `_player_summoned` (which needs a name)
+    could not match it. True only for that shape; deterministic, no LLM."""
+    try:
+        from src import act_first as _af
+        if not _af.escort_cue(last_user or "", strict=True):
+            return False
+        low = (last_user or "").lower()
+        return not any(re.search(r"(?<![\w'])" + re.escape(str(n).split()[0].lower()) + r"(?![\w'])", low) for n in (roster_names or {}).values() if n and str(n).split())
+    except Exception:  # failsoft-ok: a hiccup keeps today's stricter rule
+        return False
+
+
 def _npc_move_instructions(room_names=None) -> str:
     """The NPC-move extraction instruction block (ORW-294: shared verbatim by _move_npc_extract and the merged call). `room_names`: ORW-466, the season's themed names."""
     rooms = _room_id_list([r for r in _HOUSE_ROOMS if r != "diary-room"], room_names)  # NPCs never walk the player's DR
@@ -4657,9 +4670,26 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                 return 0
             if _proom:
                 _kept = []
+                _unnamed_invite = _player_invited_unnamed(last_user, _roster_names)  # ORW-1168: "invite her outside" names nobody, yet it is a request
+                try:
+                    from src.orwell_player_move import escort_declined_ids as _esc_no
+                    _declined = _esc_no(owner)
+                except Exception:  # failsoft-ok: no refusal list means today's rules
+                    _declined = set()
                 for hid, room in picks:
-                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)) and hid not in _companion_ids(owner):  # ORW-1030: an agreed companion walking with the player is no unrequested arrival
+                    if room == _proom and hid in _declined:
+                        logger.info(f"[orwell] auto-move-npc: dropped the arrival of {hid}, whom the engine declined to bring along")
+                        continue
+                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)) and not _unnamed_invite and hid not in _companion_ids(owner):  # ORW-1030: an agreed companion walking with the player is no unrequested arrival
                         logger.info(f"[orwell] auto-move-npc: dropped unrequested arrival of {hid} into the player's room")
+                        # ORW-1168: the prose already showed them arriving; the engine did not move them. Correct the narration next turn, never leave it silently contradicted.
+                        try:
+                            from routes import chat_helpers as _ch_d
+                            _ch_d._reground_enqueue(_ch_d._desync_key(owner), (
+                                f"RE-GROUND ON WHO CAME - last turn's narration brought {_roster_names.get(hid) or 'a houseguest'} into the player's room, but the engine did not move them and the player had not asked for them. "
+                                "Re-read `whereabouts` and keep them where the engine has them; do not narrate them here."))
+                        except Exception as _fs_exc:
+                            _failsoft_note("agent_loop:_auto_move_npc:5", _fs_exc)
                         continue
                     _kept.append((hid, room))
                 picks = _kept
@@ -4886,6 +4916,13 @@ def _normalize_with_ids(raw, valid_ids) -> tuple:
     return out, rejected
 
 
+def _out_of_earshot_ids(wb) -> set:
+    """ORW-1167: the ids in the player's room whom the engine seats in another zone of a big room (`whereabouts.present[].outOfEarshot`): seen, not heard. Pure; empty on any odd shape."""
+    if not isinstance(wb, dict):
+        return set()
+    return {p.get("id") for p in (wb.get("present") or []) if isinstance(p, dict) and p.get("outOfEarshot") and isinstance(p.get("id"), str)}
+
+
 # The scene-record extraction instruction block (ORW-294: shared verbatim by _auto_record_scene and the merged call).
 _SCENE_EXTRACT_INSTRUCTIONS = (
     "Extract the recordable consequence of a Big Brother scene the player just had with "
@@ -4918,7 +4955,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     "threat/an ally/lying to them' — never for the player's own standing (use `edges` for "
     "that). Propose only direction and relative emphasis — NEVER any number or magnitude "
     "(the engine decides how far, and whether it lands at all). If no houseguest was "
-    'genuinely engaged (a solo/internal beat), reply {"withIds":[]}. #1729 — if THE '
+    'genuinely engaged (a solo/internal beat), reply {"withIds":[]}. ORW-1167 - `withIds` holds only the houseguests the player actually spoke with or acted toward in the exchange; never a houseguest the narration puts at a distance, out of earshot or doing something else nearby, and never every name in the room. #1729 — if THE '
     "PLAYER'S MOVE reads as private out-of-character reflection/venting about the scene "
     "rather than something said or done TO a houseguest, or if it looks like leftover "
     "system/stream-recovery text rather than real player speech, that is NOT a recordable "
@@ -5103,8 +5140,10 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             wb = await _oe.whereabouts(user=owner)
             present_ids = ({p.get("id") for p in (wb.get("present") or []) if isinstance(p, dict)}
                           if isinstance(wb, dict) else None)
+            _far_ids = _out_of_earshot_ids(wb)
         except Exception:
             present_ids = None
+            _far_ids = set()
         # CodeRabbit/Greptile review (both independently confirmed) — `if present_ids:` treated a
         # VALID EMPTY read (the engine says "nobody else is in the room") the same as a failed/None
         # read, since an empty set is falsy: the intersection was skipped and the model's unverified
@@ -5120,6 +5159,18 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             _walked_out = set()
         if present_ids is not None and _walked_out:
             present_ids = set(present_ids) | _walked_out
+        if _far_ids:
+            # ORW-1167: the witness set is who the player could be heard by. A houseguest the engine seats at the far end of the room (out of earshot) is never a participant, whatever the narration did with them.
+            _far_dropped = [i for i in ids if i in _far_ids]
+            if _far_dropped:
+                ids = [i for i in ids if i not in _far_ids]
+                logger.info(f"[orwell] auto-record: dropped out-of-earshot withIds {_far_dropped} (ORW-1167 - engine zone, seen not heard) user={owner}")
+                if not ids:
+                    from src import fold_ledger as _fl_far
+                    if session_id is not None:
+                        _fl_far.note_belt_declined(owner, session_id)
+                    _fl_far.note_scene_nobody(owner)
+                    return False
         if present_ids is not None:
             _off_scene = [i for i in ids if i not in present_ids]
             ids = [i for i in ids if i in present_ids]
@@ -5316,6 +5367,8 @@ async def _auto_record_promise(last_user, house, endpoint_url, model, headers, o
         try:  # only people actually in the room heard it (engine whereabouts); a failed read fails open, like the scene belt
             wb = await _oe.whereabouts(user=owner)
             present = ({p.get("id") for p in (wb.get("present") or []) if isinstance(p, dict)} if isinstance(wb, dict) else None)
+            if present is not None:
+                present = present - _out_of_earshot_ids(wb)  # ORW-1167: a promise is heard only by who is in earshot
         except Exception:
             present = None
         if present is not None:
@@ -6323,7 +6376,27 @@ def _alliance_call_landed(result) -> bool:
     return isinstance(view, dict) and bool(view.get("id")) and not view.get("error")
 
 
-async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, refused=None) -> bool:
+_INVITE_CONTEXT_RE = re.compile(r"\b(?:group|in it|in on it|join (?:us|me)|want you in|like you in|you in)\b", re.I)
+
+
+def _prior_assistant_text(messages) -> str:
+    """ORW-1178: the narrator's reply BEFORE the player's latest message: the scene in which a houseguest invited the player (the player's bare yes names nothing)."""
+    try:
+        seen_user = False
+        for m in reversed(messages or []):
+            if not isinstance(m, dict):
+                continue
+            if not seen_user:
+                seen_user = m.get("role") == "user"
+                continue
+            if m.get("role") == "assistant" and isinstance(m.get("content"), str):
+                return m["content"]
+    except Exception:  # failsoft-ok: no context only means the old gate
+        pass
+    return ""
+
+
+async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, refused=None, prior=None) -> bool:
     """Record an alliance the player agreed to aloud but the model never joined/formed (ORW-780). True only when the
     engine APPLIED a membership (success-gated telemetry); a refusal, an ambiguous scene or any hiccup is a no-op.
     `applied_out` receives one entry per applied membership. `refused` (ORW-793) is what the ENGINE already refused the model this turn
@@ -6339,7 +6412,9 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
         state = await _oe.get_game_state(user=owner)
         raw_pitches = (state or {}).get("alliancePitches") if isinstance(state, dict) else None
         pitches = {p.get("id"): p for p in (raw_pitches or []) if isinstance(p, dict) and p.get("id") and p.get("id") not in refused_join}
-        if not pitches and not _ALLIANCE_SIGNAL_RE.search(last_user or ""):
+        # ORW-1178: a bare yes ("Im in.") names no alliance; the invitation sits in the scene before it. That scene counts as the signal.
+        invited = bool(prior) and bool(_ALLIANCE_SIGNAL_RE.search(prior) or _INVITE_CONTEXT_RE.search(prior)) and bool(_OFFER_ANSWER_RE.search(last_user or ""))
+        if not pitches and not invited and not _ALLIANCE_SIGNAL_RE.search(last_user or ""):
             return False  # no open pitch to accept and the player did not speak of an alliance: nothing to extract
         pitch_lines = "\n".join(
             f'{pid} = "{p.get("name")}" (members: {", ".join(str(m.get("name")) for m in (p.get("members") or []) if isinstance(m, dict))})'
@@ -6352,13 +6427,16 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
                 "agreed group of houseguests, more than a one-to-one deal). Reply IMMEDIATELY with ONLY a JSON object, "
                 "no prose, no code fence:\n"
                 '{"join":"<one id from OPEN PITCHES the player clearly accepted, or null>",'
+                '"invited_by":"<the ROSTER id of the houseguest who asked the player into their group in THE SCENE BEFORE, when the player said yes to that invitation, or null>",'
                 '"form":{"name":"<the group name as spoken, or empty>","members":["<houseguest ids from the ROSTER>"]} or null}\n'
                 "join: ONLY when the player clearly said yes to THAT pitched alliance. form: ONLY when the player and "
                 "at least two houseguests explicitly agreed to be an alliance together (list the houseguests, never "
                 "the player). A maybe, a question, a refusal, a one-sided pitch, or a plain two-person deal => both null. "
+                "invited_by: ONLY when the player plainly said yes to a houseguest's invitation into a group; the houseguest who spoke the invitation, never the player. "
                 "NEVER invent an id not in the lists."},
             {"role": "user", "content":
                 f"OPEN PITCHES (id = name):\n{pitch_lines}\n\nROSTER (id = name):\n{roster_lines}\n\n"
+                f"THE SCENE BEFORE:\n{(prior or '')[:1500]}\n\n"
                 f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\nWHAT HAPPENED:\n{(narration or '')[:2500]}\n\nJSON:"},
         ]
         _note_belt_attempt("auto-alliance")  # ORW-1042: the gate passed; the extraction call is next
@@ -6382,6 +6460,17 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
                 _any = True
             else:
                 logger.info(f"[orwell] auto-join alliance {join_id}: the engine declined - nothing recorded user={owner}")
+        inviter_id = obj.get("invited_by")
+        if not _any and isinstance(inviter_id, str) and inviter_id in roster and inviter_id not in refused_join:
+            # ORW-1178: the yes answered a houseguest's own invitation. The engine reads the alliance that houseguest is really in (or founds one with them); the narrated roster never decides it.
+            res = await _backfill_with_cas(owner, _oe.join_alliance, "", user=owner, defer_fold=True, inviter=inviter_id)
+            if isinstance(res, dict) and res.get("id") and not res.get("error"):
+                logger.info(f"[orwell] auto-joined the inviter's alliance user={owner}")
+                if isinstance(applied_out, list):
+                    applied_out.append(res.get("id"))
+                _any = True
+            else:
+                logger.info(f"[orwell] auto-join inviter alliance: the engine declined - nothing recorded user={owner}")
         form = obj.get("form")
         if not _any and isinstance(form, dict):
             group_ids = [m for m in (form.get("members") or []) if isinstance(m, str) and m in roster]
@@ -8136,8 +8225,20 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
     # sentence. A wrong count is not a fabricated outcome, so a chunk it empties gets NO cutaway line (and
     # no cut-streak step) below: it is simply not shown. The drop is mirrored like any other, because the
     # scene's mirror pair is `screened` -> the final text.
+    # ORW-1182: a competition is told once - a sentence that puts an earlier reply's exit back on its feet to fall again, or repeats a sentence of the last five replies, is dropped (deterministic; engine
+    # truth only). Like the count drop, a chunk it empties gets no cutaway line: it is simply not shown, and the drop is mirrored (screened -> final text).
+    _pre_repeat, emptied_by_repeat = screened, False
+    try:
+        from src import orwell_comp_repeat as _cr
+        screened, _cr_drops = _cr.screen(owner, screened)
+        if _cr_drops:
+            logger.warning("[orwell] comp-repeat cut %d sentence(s) for user=%s (%s)", len(_cr_drops), owner, ",".join(sorted({r for r, _ in _cr_drops})))
+            emptied_by_repeat = bool(_pre_repeat.strip()) and not screened.strip()
+    except Exception as _fs_exc:
+        _failsoft_note("agent_loop:_emit_guarded_scene:comp-repeat", _fs_exc)
+        screened = _pre_repeat
     counted = await _headcount_wall_guard(screened, owner) if screened.strip() else screened
-    emptied_by_count = bool(screened.strip()) and not counted.strip()
+    emptied_by_count = (bool(screened.strip()) and not counted.strip()) or emptied_by_repeat
     guarded = await _pre_emission_outcome_guard(counted, owner) if counted.strip() else counted
     if not guarded.strip() and clean.strip() and not emitted_visible and not cutaway_emitted and not emptied_by_count:
         # T0-3: the pre-emission guard dropped EVERY sentence this chunk offered (each one asserted a
@@ -12447,6 +12548,11 @@ async def _stream_agent_loop_impl(
                         # rolling record of what the narration already used (counted) and folds it in. No model call; fail-soft; one INFO
                         # season line carries the counts. Gated like the other side records (the brief is where the record shows).
                         try:
+                            from src import orwell_comp_repeat as _cr  # ORW-1182: fold this reply into the competition's told-once ledger (no model call; fail-soft)
+                            await _cr.after_turn(_turn_narration_visible, owner)
+                        except Exception as _cr_e:  # failsoft-ok: comp-repeat-hook (after_turn guards itself; this guards the import)
+                            logger.debug(f"[comp-repeat] skipped: {_cr_e}")
+                        try:
                             from src import orwell_narration_use as _nu
                             await _nu.after_turn(_turn_narration_visible, owner)
                         except Exception as _nu_e:  # failsoft-ok: narration-use-hook (after_turn records its own failures; this guards the import and the call itself)
@@ -12598,7 +12704,8 @@ async def _stream_agent_loop_impl(
                             _applied_alliances: list = []
                             if await _auto_alliance(_turn_narration, _last_user_for_confide,
                                                     _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                    applied_out=_applied_alliances, refused=_turn_alliance_refused):
+                                                    applied_out=_applied_alliances, refused=_turn_alliance_refused,
+                                                    prior=_prior_assistant_text(messages)):
                                 for _ in (_applied_alliances or [None]):
                                     _note_belt(owner, "auto-alliance")
                         # ORW-750: a voiced promise the model never recorded. Only a promise the ledger actually GAINED counts toward telemetry.

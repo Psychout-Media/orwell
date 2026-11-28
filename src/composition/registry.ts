@@ -124,6 +124,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // 0077 Phase 2: the live sub-zone reader, so co-presence witnessing in a big room (the backyard, the
   // lounge) is earshot-scoped — the far end of the yard is not auto-witnessed. Unwired ⇒ pre-0077 behavior.
   commands.setZoneProvider((id) => session.currentZone(id));
+  commands.setGatheredProvider(() => session.houseEventGathered()); // ORW-1167: a whole-house event is one room for earshot
   // Phase 2 of "the player can play offense" (0085 follow-on): a LANDED evict-shaped pitch the player
   // makes (recordInteraction's aboutEdges, Phase 1) folds into the player's OWN persistent campaign,
   // mirroring formCampaigns/advanceCampaign/campaignTilt — self-gated by the session's own campaign flag.
@@ -160,6 +161,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   session.setNpcKnowledgeProviders({
     known: (id) => engine.knowledge.knownTo(id),
     suspicions: (id) => engine.knowledge.suspicionsOf(id),
+    learn: (id, fact) => { engine.knowledge.seedBelief(id, fact, "overheard"); }, // ORW-1171: a slipped private tie reaches the people in earshot who were not in on it
   });
   // The season record (0048/B56): the recap reads the PUBLIC record; the retrospective reads the
   // hidden side THROUGH the session's finished-state gate (the one sanctioned Vault seam).

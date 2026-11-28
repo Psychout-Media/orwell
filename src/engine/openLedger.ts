@@ -28,6 +28,10 @@ export const OPEN_LEDGER_PARTIES_MAX = 8;
 export const OPEN_LEDGER_ABOUT_MAX = 80;
 export const OPEN_LEDGER_NOTE_MAX = 160;
 export const OPEN_LEDGER_PLAYER = "player";
+/** ORW-1177: the parts of a day a dated plan can name, in order (the engine's own day phases; `late-night` counts as the end of `night`). */
+export const OPEN_LEDGER_DUE_PARTS = ["morning", "afternoon", "evening", "night"] as const;
+export type OpenLedgerDuePart = (typeof OPEN_LEDGER_DUE_PARTS)[number];
+const DAY_PART_RANK: Readonly<Record<string, number>> = { morning: 0, afternoon: 1, evening: 2, night: 3, "late-night": 4 };
 /** ORW-448: an open entry nobody touched (created or re-stated) for this many in-game days lapses at the day roll. */
 export const OPEN_LEDGER_LAPSE_DAYS = 7;
 /** ORW-448: a due entry is offered for judgment at most this many times when the judging call fails; then the flag is dropped. */
@@ -64,6 +68,9 @@ export interface OpenLedgerEntry {
   readonly day?: number;
   /** ORW-448: the id of an engine deal (between the same two people) active when this was recorded. ORW-456: once set it never changes; a spoken deal line may gain it once, when the engine records the deal. */
   readonly dealId?: string;
+  /** ORW-1177: a dated plan ("ice breakers tomorrow morning") carries the in-game day it falls due and, when named, the part of that day. Set once at creation, never edited. */
+  readonly dueDay?: number;
+  readonly duePart?: OpenLedgerDuePart;
   /** ORW-586: the closed, typed term of a promise the ENGINE judges from board facts (absent on every free-text entry: then nothing here changes). Set once at creation, never edited. */
   readonly term?: PromiseTerm;
   readonly status: OpenLedgerStatus;
@@ -95,15 +102,23 @@ export type OpenLedgerRejection = "bad-shape" | "empty" | "too-long" | "bad-spea
 
 export const emptyOpenLedger = (): OpenLedger => ({ nextId: 1, entries: [] });
 
-export interface OpenLedgerProposal { text: string; speaker: string; addressedTo: string[]; kind: string; parties?: string[]; about?: string }
+/** ORW-1177: when a plan falls due, as the extraction states it: today or tomorrow, and optionally the part of that day. The engine turns it into an absolute day from its own day counter. */
+export interface OpenLedgerDueReq { day: "today" | "tomorrow"; part?: OpenLedgerDuePart }
+export interface OpenLedgerProposal { text: string; speaker: string; addressedTo: string[]; kind: string; parties?: string[]; about?: string; due?: OpenLedgerDueReq }
 
 /** Check the request shape (text, speaker, addressedTo, kind, and optionally parties and about) and normalize it. A string is the rejection code. */
 export function openLedgerProposal(req: unknown, knownIds: ReadonlySet<string>): OpenLedgerProposal | OpenLedgerRejection {
   if (!req || typeof req !== "object" || Array.isArray(req)) return "bad-shape";
   const given = Object.keys(req as object);
-  if (given.some((k) => !["addressedTo", "kind", "speaker", "text", "parties", "about"].includes(k))) return "bad-shape";
+  if (given.some((k) => !["addressedTo", "kind", "speaker", "text", "parties", "about", "due"].includes(k))) return "bad-shape";
   if (["addressedTo", "kind", "speaker", "text"].some((k) => !given.includes(k))) return "bad-shape";
-  const { text, speaker, addressedTo, kind, parties, about } = req as Record<string, unknown>;
+  const { text, speaker, addressedTo, kind, parties, about, due } = req as Record<string, unknown>;
+  if (due !== undefined) {
+    const d = due as Record<string, unknown> | null;
+    if (!d || typeof d !== "object" || Array.isArray(d) || Object.keys(d).some((k) => k !== "day" && k !== "part")) return "bad-shape";
+    if (d.day !== "today" && d.day !== "tomorrow") return "bad-shape";
+    if (d.part !== undefined && !(OPEN_LEDGER_DUE_PARTS as readonly unknown[]).includes(d.part)) return "bad-shape";
+  }
   if (parties !== undefined && (!Array.isArray(parties) || parties.length > OPEN_LEDGER_PARTIES_MAX || parties.some((a) => typeof a !== "string"))) return "bad-shape";
   if (about !== undefined && typeof about !== "string") return "bad-shape";
   if (typeof text !== "string" || typeof speaker !== "string" || typeof kind !== "string" || !Array.isArray(addressedTo)) return "bad-shape";
@@ -123,7 +138,7 @@ export function openLedgerProposal(req: unknown, knownIds: ReadonlySet<string>):
   if (speaker === OPEN_LEDGER_PLAYER && to.length === 0 && group.length === 0 && !(typeof about === "string" && about.trim())) return "bad-addressee";
   const k = normalizeCanonText(kind).slice(0, OPEN_LEDGER_KIND_MAX).trim() || "claim";
   const ab = about === undefined ? "" : normalizeCanonText(about).slice(0, OPEN_LEDGER_ABOUT_MAX).trim();
-  return { text: t, speaker, addressedTo: to, kind: k, ...(group.length ? { parties: group } : {}), ...(ab ? { about: ab } : {}) };
+  return { text: t, speaker, addressedTo: to, kind: k, ...(group.length ? { parties: group } : {}), ...(ab ? { about: ab } : {}), ...(due ? { due: { day: (due as OpenLedgerDueReq).day, ...((due as OpenLedgerDueReq).part ? { part: (due as OpenLedgerDueReq).part } : {}) } } : {}) };
 }
 
 /**
@@ -159,6 +174,8 @@ export function recordOpenEntry(
   p: OpenLedgerProposal,
   ctx: { turn: number; beatSeq: number; room: string; witnesses: readonly string[]; day?: number; dealId?: string; term?: PromiseTerm },
 ): { ledger: OpenLedger; outcome: "recorded" | "duplicate" | OpenLedgerRejection; id?: string } {
+  // ORW-1177: a dated plan falls due on an absolute day: today's day counter (1 before the first night rolls it) plus 0 or 1.
+  const dueDay = p.due ? (ctx.day ?? 1) + (p.due.day === "tomorrow" ? 1 : 0) : undefined;
   const witnesses = [...new Set([OPEN_LEDGER_PLAYER, ...ctx.witnesses])].sort();
   if ([p.speaker, ...p.addressedTo, ...(p.parties ?? [])].some((id) => !witnesses.includes(id))) return { ledger, outcome: "not-present" };
   const keyParties = [p.speaker, ...p.addressedTo, ...(p.parties ?? [])];
@@ -178,9 +195,20 @@ export function recordOpenEntry(
     id, text: p.text, speaker: p.speaker, addressedTo: p.addressedTo, kind: p.kind,
     ...(p.parties ? { parties: p.parties } : {}), ...(p.about ? { about: p.about } : {}),
     turn: ctx.turn, beatSeq: ctx.beatSeq, room: ctx.room, witnesses, quoteHash,
-    ...(ctx.day !== undefined ? { day: ctx.day } : {}), ...(ctx.dealId ? { dealId: ctx.dealId } : {}), ...(ctx.term ? { term: ctx.term } : {}), status: "open",
+    ...(ctx.day !== undefined ? { day: ctx.day } : {}), ...(ctx.dealId ? { dealId: ctx.dealId } : {}), ...(ctx.term ? { term: ctx.term } : {}),
+    ...(dueDay !== undefined ? { dueDay, ...(p.due?.part ? { duePart: p.due.part } : {}) } : {}), status: "open",
   };
   return { ledger: { ...ledger, nextId: ledger.nextId + 1, entries: [...ledger.entries, entry] }, outcome: "recorded", id };
+}
+
+/** ORW-1177: is this open plan due now (its day has come, and its part of day when it named one)? `now.day` undefined reads as day 1, as at recording. */
+export function openLedgerPlanDue(e: OpenLedgerEntry, now: { day?: number; part?: string } | undefined): boolean {
+  if (!now || e.status !== "open" || e.dueDay === undefined) return false;
+  const today = now.day ?? 1;
+  if (today !== e.dueDay) return today > e.dueDay;
+  const want = e.duePart ? DAY_PART_RANK[e.duePart]! : 0;
+  const have = now.part !== undefined ? DAY_PART_RANK[now.part] : undefined;
+  return have !== undefined && have >= want;
 }
 
 /** ORW-456: a spoken deal line and a deal recorded later are the same agreement when made the same in-game day (parties already match); with no day known, within `maxAge` beats. */
@@ -310,16 +338,24 @@ function unheardClause(e: OpenLedgerEntry, hereIds: readonly string[], label: (i
  * names anyone here now who was not a witness of it.
  */
 export function openLedgerSection(
-  ledger: OpenLedger, hereIds: readonly string[], nameOf: (id: string) => string, nowTurn?: number,
+  ledger: OpenLedger, hereIds: readonly string[], nameOf: (id: string) => string, nowTurn?: number, now?: { day?: number; part?: string },
 ): string | undefined {
   const label = (id: string): string => (id === OPEN_LEDGER_PLAYER ? "you" : nameOf(id));
-  const lines = openLedgerRelevant(ledger, hereIds, OPEN_LEDGER_BRIEF_MAX, nowTurn).map(({ e, here }) => {
+  // ORW-1177: a plan that has come due is always shown (first), even past the cap, so the scene voices it or breaks it on the page.
+  const base = openLedgerRelevant(ledger, hereIds, OPEN_LEDGER_BRIEF_MAX, nowTurn);
+  const dueNow = openLedgerRelevant(ledger, hereIds, OPEN_LEDGER_TOTAL_CEILING, nowTurn).filter(({ e }) => openLedgerPlanDue(e, now));
+  const dueIds = new Set(dueNow.map(({ e }) => e.id));
+  const shown = [...dueNow, ...base.filter(({ e }) => !dueIds.has(e.id))];
+  const lines = shown.map(({ e, here }) => {
+    const planDue = dueIds.has(e.id);
+    const when = e.dueDay !== undefined && e.status === "open" && !planDue ? ` (planned for ${now?.day !== undefined && e.dueDay === now.day + 1 ? "tomorrow" : "a coming day"}${e.duePart ? ` ${e.duePart}` : ""})` : "";
+    const dueTag = planDue ? ` [PLAN DUE NOW${e.duePart ? `: set for the ${e.duePart}` : ""}: this scene must voice it as happening, or say outright that it is broken or put off]` : "";
     const by = label(e.speaker);
     const group = partiesOf(e).filter((id) => id !== e.speaker);
     const everyone = partiesOf(e);
     const plain = !e.about && !e.parties?.length && everyone.length === 2 && everyone.includes(OPEN_LEDGER_PLAYER);
     const status = e.status === "open" ? "" : ` [${e.status}${e.note ? `: ${quoted(inline(e.note, true))}` : ""}]`;
-    const unheard = unheardClause(e, hereIds, label);
+    const unheard = unheardClause(e, hereIds, label) + when + dueTag;
     const kind = inline(e.kind) || "claim";
     if (plain) {
       return `- open between you and ${nameOf(everyone.find((id) => id !== OPEN_LEDGER_PLAYER) ?? here[0]!)} (${kind}, from ${by}): ${quoted(e.text)}${status}${unheard}`;
@@ -478,6 +514,11 @@ export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems:
       // ORW-586: a malformed term is DROPPED (the entry stays, as free text); it never counts as a problem, so it can never lock writes (as ORW-494's due flags).
       let kept: OpenLedgerEntry = e.status === undefined ? ({ ...e, status: "open" } as OpenLedgerEntry) : e;
       if ((kept as { term?: unknown }).term !== undefined && !isPromiseTerm((kept as { term?: unknown }).term)) { const { term: _bad, ...rest } = kept as OpenLedgerEntry & { term?: unknown }; kept = rest as OpenLedgerEntry; droppedTerms++; }
+      // ORW-1177: a malformed plan date is dropped the same way (the entry stays, as an undated promise).
+      const k2 = kept as OpenLedgerEntry & { dueDay?: unknown; duePart?: unknown };
+      if ((k2.dueDay !== undefined && !isDay(k2.dueDay)) || (k2.duePart !== undefined && !(OPEN_LEDGER_DUE_PARTS as readonly unknown[]).includes(k2.duePart))) {
+        const { dueDay: _d, duePart: _p, ...rest } = k2; kept = rest as OpenLedgerEntry;
+      }
       entries.push(kept);
     } else problems++;
   }

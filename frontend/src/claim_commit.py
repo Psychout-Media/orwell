@@ -27,7 +27,8 @@ CLAIM_SLEEP = "claim-sleep"
 CLAIM_BED = "claim-bed"
 CLAIM_ALLIANCE = "claim-alliance"
 CLAIM_DEAL = "claim-deal"
-KINDS = (CLAIM_BED, CLAIM_ALLIANCE, CLAIM_DEAL)  # sleep is NOT checked here: ORW-1154 (#3496) holds an unbacked sleep claim; this module keeps only what it does not cover
+CLAIM_ROSTER = "claim-roster"  # ORW-1178: a group the narration names by the engine's own alliance name, with houseguests the engine does not hold in it
+KINDS = (CLAIM_BED, CLAIM_ALLIANCE, CLAIM_DEAL, CLAIM_ROSTER)  # sleep is NOT checked here: ORW-1154 (#3496) holds an unbacked sleep claim; this module keeps only what it does not cover
 FACTS = frozenset(KINDS)
 # the claim kinds the existing pre-display facts already cover (counted here as claims too, so one ledger shows every class)
 EXTERNAL_KINDS = ("move", "time", "presence")
@@ -108,6 +109,23 @@ _NOT_A_CLAIM = re.compile(
     r"\w+n['\u2019]t\b|\b(?:could|would|might|may|should|can|can't|cannot|won't|will|shall|if|whether|unless|want\w*|wish\w*|hope\w*|plan\w*|try\w*|about\s+to|ready\s+to|"
     r"not|never|nobody|no\s+one|yet|almost|nearly|until|tomorrow|tonight|later|someday|once|when|as\s+soon\s+as|imagin\w+|dream\w*\s+of|rather|instead|had|has\s+been\s+offered|offers?|pitch\w*|propos\w+|ask\w*|suggest\w*)\b|\?",
     re.IGNORECASE)
+# ORW-1190: a reference to something the engine already holds (a past act, a time marker), someone else's act, speech with a tag outside the quotes, and ordinary nouns are not NEW claims.
+_BACK_REF = re.compile(
+    r"\b(?:yesterday|last|ago|earlier|since|still|already|previously|formerly|once\s+more|week\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)|day\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)|"
+    r"(?:first|second|third|opening|other)\s+(?:day|night|week)|this\s+(?:morning|afternoon|evening)|the\s+(?:other|next)\s+(?:day|night)|weeks?|months?|nights?\s+ago|that\s+(?:night|day|morning)|remember\w*|recall\w*)\b",
+    re.IGNORECASE)
+_SPEECH_TAG = re.compile(r",\s+(?:\w+\s+){0,2}?(?:says|said|asks|asked|whispers|whispered|replies|replied|murmurs|murmured|mutters|muttered|tells\s+you|told\s+you|answers|answered|adds|added|"
+                         r"announces|announced|laughs|laughed|grins|grinned|calls|called|cheers|cheered|beams|beamed|declares|declared)\b", re.IGNORECASE)
+_OTHERS_ACT = re.compile(r"\bbetween\b(?!.*\byou\b)", re.IGNORECASE)
+_NOT_PERSON_OBJ = re.compile(r"\b(?:deal|bargain|agreement|promise|pact)\s+(?:with|for|about|over|on)\s+(?:the|a|an|my|your|his|her|their|its|this|that|some|yourself|myself|himself|herself|themselves|me)\b|"
+                             r"\b(?:yourself|myself|himself|herself|themselves)\b|\b(?:crew|squad|core)\s+of\s+(?:two|the\s+house)\b|\bthe\s+core\s+of\b|\b(?:bed|bunk)s?\s+(?:sheets?|frames?|linens?|spreads?|posts?|time|side|head|roll)\b|"
+                             r"\b(?:bed|bunk)s?\s+from\s+the\s+(?:storage|closet|garage|attic|shed|pile|cupboard)\b", re.IGNORECASE)
+
+
+def _not_a_new_claim(sent: str) -> bool:
+    return bool(_NOT_A_CLAIM.search(sent) or _BACK_REF.search(sent) or _SPEECH_TAG.search(sent) or _OTHERS_ACT.search(sent) or _NOT_PERSON_OBJ.search(sent))
+
+
 _YOU = r"(?:you(?:['’]ve|\s+have)?|your\s+body)"
 _SLEEP_RE = re.compile(
     r"\b" + _YOU + r"\s+(?:\w+ly\s+|finally\s+|soon\s+|quickly\s+|just\s+)*(?:fall|fell|drift|drifted|doze|dozed|slip|slipped|sink|sank|nod|nodded)s?\s+(?:off|asleep|into\s+(?:a\s+|an\s+)?(?:deep\s+|heavy\s+|fitful\s+|easy\s+)?(?:sleep|slumber))\b|"
@@ -118,10 +136,10 @@ _SLEEP_RE = re.compile(
     re.IGNORECASE)
 _BED_RE = re.compile(
     r"\b" + _YOU + r"\s+(?:\w+ly\s+|quickly\s+|finally\s+|then\s+)*(?:claim|claimed|take|took|grab|grabbed|pick|picked|choose|chose|stake|staked|snag|snagged|secure|secured|settle\s+(?:on|into)|settled\s+(?:on|into))\s+"
-    r"(?:\w+\s+){0,3}?(?:bed|bunk|bunks|beds|double|single)\b|\b(?:the|that|this)\s+(?:\w+\s+)?(?:bed|bunk)\s+(?:is|becomes|now\s+is|belongs\s+to)\s+(?:yours|now\s+yours|you)\b|"
+    r"(?:\w+\s+){0,3}?(?:bed|bunk|bunks|beds|(?:double|single)(?=\s*(?:[.,;!?:]|$|bed\b|bunk\b|in\b|by\b|near\b|at\b|on\b|for\b|of\b|and\b|but\b)))\b|\b(?:the|that|this)\s+(?:\w+\s+)?(?:bed|bunk)\s+(?:is|becomes|now\s+is|belongs\s+to)\s+(?:yours|now\s+yours|you)\b|"
     r"\b(?:calls?|called)\s+dibs\b[^.!?]{0,30}\b(?:bed|bunk)\b",
     re.IGNORECASE)
-_ALLIANCE_NOUN = r"(?:alliance|pact|trio|quartet|final\s+(?:two|three|four)|crew|squad|core)"
+_ALLIANCE_NOUN = r"(?:alliance|pact|trio|quartet|final\s+(?:two|three|four)|crew|squad)"
 _ALLIANCE_RE = re.compile(
     r"\b" + _YOU + r"\s+(?:\w+\s+){0,2}?(?:form|formed|forge|forged|seal|sealed|join|joined|agree\s+to|agreed\s+to|swear|swore|shake\s+on|shook\s+on)\s+(?:\w+\s+){0,3}?" + _ALLIANCE_NOUN + r"\b|"
     r"\b(?:the|an?|your|new|their|our)\s+(?:\w+\s+){0,2}?" + _ALLIANCE_NOUN + r"\s+(?:is|was|has\s+been|is\s+now|becomes|became)\s+(?:formed|sealed|official|born|made|set)\b|"
@@ -152,7 +170,7 @@ def extract_claims(text: str, *, in_quote: bool = False) -> "list[Claim]":
     out: "list[Claim]" = []
     try:
         for sent in _narration(text, in_quote):
-            if _NOT_A_CLAIM.search(sent):
+            if _not_a_new_claim(sent):
                 continue
             for kind, rx in _RULES:
                 if rx.search(sent):
@@ -165,18 +183,70 @@ def extract_claims(text: str, *, in_quote: bool = False) -> "list[Claim]":
 # ── checking claims against the committed state ─────────────────────────────────────────────────────────────────────
 
 
+def _holds(kind: str, state: Any) -> bool:
+    """ORW-1190: the engine's STANDING state already holds the thing (a bed the player owns, an alliance the player is in, a deal the player is party to). A reference to it is backed."""
+    try:
+        st = state if isinstance(state, dict) else {}
+        if kind == CLAIM_BED:
+            wh = st.get("whereabouts") if isinstance(st.get("whereabouts"), dict) else {}
+            return bool(wh.get("playerBed") or st.get("playerBed"))
+        if kind == CLAIM_ALLIANCE:
+            return any(isinstance(a, dict) and (not a.get("members") or any(isinstance(m, dict) and m.get("id") == "player" for m in a.get("members") or [])) for a in (st.get("alliances") or []))
+        if kind == CLAIM_DEAL:
+            return any(isinstance(d, dict) and d.get("status", "open") in ("open", "kept") for d in (st.get("deals") or []))
+    except Exception:  # failsoft-ok: no standing state read means the turn's commits decide
+        return False
+    return False
+
+
 def backed(kind: str, state: Any, owner: Any) -> bool:
     if kind == CLAIM_BED:
-        return committed(owner, _BED_TOOLS)
+        return committed(owner, _BED_TOOLS) or _holds(kind, state)
     if kind == CLAIM_ALLIANCE:
-        return committed(owner, _ALLIANCE_TOOLS)
+        return committed(owner, _ALLIANCE_TOOLS) or _holds(kind, state)
     if kind == CLAIM_DEAL:
-        return committed(owner, _DEAL_TOOLS)
+        return committed(owner, _DEAL_TOOLS) or _holds(kind, state)
     return True
 
 
 def unbacked(text: str, state: Any, owner: Any, *, in_quote: bool = False) -> "list[Claim]":
     return [c for c in extract_claims(text, in_quote=in_quote) if not backed(c.kind, state, owner)]
+
+
+def _norm_group(t: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", re.sub(r"^the\s+", "", str(t or "").strip().lower())).strip()
+
+
+def roster_conflict(text: str, state: Any, *, in_quote: bool = False) -> str:
+    """ORW-1178: "" when fine, else the engine's real roster ("A, B, C") of an alliance the narration names but whose members it speaks wrongly.
+    A sentence that names one of the engine's alliances (the player's own, or one pitched to them) AND names a houseguest the engine does not hold in that alliance is a roster the engine contradicts.
+    Pure, fail-open, no model. The player is never a "named houseguest" here."""
+    try:
+        st = state if isinstance(state, dict) else {}
+        groups = [g for k in ("alliances", "alliancePitches") for g in (st.get(k) or []) if isinstance(g, dict) and g.get("name")]
+        if not groups:
+            return ""
+        from src import predisplay_check as pd
+        people = {str(h.get("name")) for h in (st.get("house") or []) if isinstance(h, dict) and h.get("name")}
+        for g in groups:
+            people |= {str(m.get("name")) for m in (g.get("members") or []) if isinstance(m, dict) and m.get("name")}
+        for sent in _narration(text, in_quote):
+            low = _norm_group(sent)
+            for g in groups:
+                gname = _norm_group(g.get("name"))
+                if not gname or not re.search(r"(?<![a-z0-9])" + re.escape(gname) + r"(?![a-z0-9])", low):
+                    continue
+                members = [str(m.get("name")) for m in (g.get("members") or []) if isinstance(m, dict) and m.get("name")]
+                held = {f.lower() for n in members for f in pd._name_forms(n)}
+                for person in sorted(people):
+                    forms = pd._name_forms(person)
+                    if any(f.lower() in held for f in forms):
+                        continue
+                    if any(re.search(r"(?<![A-Za-z])" + re.escape(f) + r"(?![A-Za-z])", sent) for f in forms):
+                        return ", ".join(members)
+        return ""
+    except Exception:  # failsoft-ok: an unreadable check never holds narration
+        return ""
 
 
 def claim_conflicts(text: str, state: Any, owner: Any, *, in_quote: bool = False) -> "list[tuple[str, str]]":
@@ -188,6 +258,9 @@ def claim_conflicts(text: str, state: Any, owner: Any, *, in_quote: bool = False
             if c.kind in seen:
                 continue
             seen[c.kind] = ""
+        roster = roster_conflict(text, st, in_quote=in_quote)  # ORW-1178: the narrated members must equal the engine's, committed or not
+        if roster:
+            seen[CLAIM_ROSTER] = roster
         return list(seen.items())
     except Exception:  # failsoft-ok: an unreadable check never holds narration
         return []
@@ -198,6 +271,9 @@ def correction_for(fact: str, detail: str = "") -> str:
         return "The narration gave the player a bed but the game has not recorded a claim. Do not say a bed is claimed or theirs; show the beds as they are and leave the choice to the player."
     if fact == CLAIM_ALLIANCE:
         return "The narration formed an alliance but the player has not agreed to one and the game recorded none. Do not form, seal or join an alliance in the narration; houseguests may pitch one and the player answers."
+    if fact == CLAIM_ROSTER:
+        return ("The narration named the members of a group differently from the game. " + (f"The game holds exactly these in it: {detail}. " if detail else "")
+                + "Name the group's members only as the game holds them; do not add a houseguest the game does not have in it.")
     if fact == CLAIM_DEAL:
         return "The narration struck a deal but the game recorded none. Do not say a deal is made; a houseguest may offer terms and the player answers."
     return ""

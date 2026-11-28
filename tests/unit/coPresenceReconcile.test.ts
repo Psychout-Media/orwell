@@ -83,17 +83,19 @@ describe("BL-014 — co-presence reconciliation (engine-side, at the fold bounda
     expect(h.rel.edge(npc(1), PLAYER)).not.toEqual(BASELINE_EDGE);
   });
 
-  it("KEEPS a same-room named witness — even in a DIFFERENT zone (zone governs earshot, not legality)", () => {
-    // npc(1) is in the SAME room (backyard) but a far sub-zone. Reconciliation is ROOM-based: a NAMED
-    // same-room participant is co-present at ANY zone and is kept (zone only gates bystander earshot).
-    const occ = new Map<EntityId, Room>([[PLAYER, "backyard"], [npc(1), "backyard"]]);
-    const zones = new Map<EntityId, Zone>([[PLAYER, "poolside"], [npc(1), "workout"]]);
+  it("DROPS a same-room named witness in a far zone (ORW-1167: earshot is the witness set) and KEEPS a same-zone one", () => {
+    // npc(1) is in the SAME room (backyard) but the far sub-zone, out of earshot: a named participant the
+    // player could not be heard by is not a witness and takes no fold. npc(2) shares the player's zone and stays.
+    const occ = new Map<EntityId, Room>([[PLAYER, "backyard"], [npc(1), "backyard"], [npc(2), "backyard"]]);
+    const zones = new Map<EntityId, Zone>([[PLAYER, "poolside"], [npc(1), "workout"], [npc(2), "poolside"]]);
     const h = harness(occ, 9, zones);
     const { eventId } = h.commands.recordInteraction({
-      initiator: PLAYER, witnessSet: [PLAYER, npc(1)], kind: "strategy", content: "a plan across the yard",
+      initiator: PLAYER, witnessSet: [PLAYER, npc(1), npc(2)], kind: "strategy", content: "a confidence at the pool",
     });
-    expect(witnessOf(h, eventId)).toContain(npc(1));
-    expect(h.rel.edge(npc(1), PLAYER)).not.toEqual(BASELINE_EDGE); // kept ⇒ still takes the directed fold
+    expect(witnessOf(h, eventId)).not.toContain(npc(1));
+    expect(witnessOf(h, eventId)).toContain(npc(2));
+    expect(h.rel.edge(npc(1), PLAYER)).toEqual(BASELINE_EDGE);
+    expect(h.rel.edge(npc(2), PLAYER)).not.toEqual(BASELINE_EDGE);
   });
 
   it("NEVER drops the player or the initiator, even when the occupancy places THEM elsewhere", () => {
