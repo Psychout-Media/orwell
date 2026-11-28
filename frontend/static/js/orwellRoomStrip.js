@@ -339,6 +339,7 @@
       // opacity — the whole point of the one-cycle "leaving" grace phase the diff already computes.
       chip.classList.toggle("ors-chip-leaving", leaving);
       chip.title = titleFor(c.person, { asleep: asleep, leaving: leaving });
+      if (ctx.privateTalk && ctx.privateTalk.with && c.person && (ctx.privateTalk.with.id === c.person.id || ctx.privateTalk.with.name === c.person.name)) chip.title += " (talking privately with you)"; // ORW-1169
       if (fresh && !leaving) _animateEnter(chip); // a brand-new arrival fades in (reduced-motion: instant)
       // place the node directly before `ref` (its correct next sibling): insert a freshly-built chip
       // (not yet a child) OR move one out of position; a correctly-placed reused chip is left alone.
@@ -375,7 +376,7 @@
       ]);
 
       if (superseded()) return;
-      render({ room: w.room, present: w.present, roster: roster, roles: roles, asleep: state.asleep });
+      render({ room: w.room, present: w.present, privateTalk: w.privateTalk, roster: roster, roles: roles, asleep: state.asleep });
       _failures = 0;
     } catch (_) {
       if (superseded()) return;

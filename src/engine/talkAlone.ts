@@ -15,6 +15,8 @@ export const TALK_ALONE = {
   askRarity: 0.12,
   /** A houseguest's own ask for a private word stands this many in-game hours before it lapses. */
   askHours: 4,
+  /** ORW-1169: a talk the player has with exactly one houseguest alone in a room (a recorded scene) locks the two for this many in-game hours; each recorded scene with the same partner renews it, the player leaving the room ends it. */
+  sceneHours: 1,
 } as const;
 
 /** Does the houseguest agree? The deal-consent willingness plus the one keyed jitter (in [-DEAL_CONSENT.jitter, +DEAL_CONSENT.jitter]) against the cost. No rng here. */

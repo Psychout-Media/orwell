@@ -1871,6 +1871,15 @@ def _turn_drivers_section(user: str | None) -> dict | None:
         return None
 
 
+def _gates_section() -> dict | None:
+    """ORW-1156 part 3: every intent gate's logged decisions and, from the labelled corpus (codes only), each gate's miss rate. Numbers only."""
+    try:
+        from src import gate_log as _gl
+        return _gl.stats()
+    except Exception:
+        return None
+
+
 def _act_first_section() -> dict | None:
     try:
         from src import act_first as _af
@@ -2015,6 +2024,7 @@ async def _health_snapshot(user: str | None) -> dict:
         "beltPrecision": _belt_precision_section(),
         # ORW-1014 PR 2: the act-first round's flag state, outcome counts, misses and latency p50/p95 (ms).
         "actFirst": _act_first_section(),
+        "gates": _gates_section(),
         # ORW-408: the pre-display hard-fact check's counters (chunks checked, skipped by reason, conflicts by fact). Numbers and fact ids only.
         "predisplay": _predisplay_section(),
         # ORW-678: boolean settings that differ from the shipped default on this install.
@@ -2546,6 +2556,23 @@ def setup_admin_health_routes() -> APIRouter:
             flags = {}
         return {f: bool(flags.get(f)) for f in orwell_engine.BEHAVIORAL_FLAG_FIELDS}
 
+    @router.post("/ops/reissue-day-recap")
+    async def admin_reissue_day_recap(request: Request):
+        """ORW-1165: re-issue one closed day's recap for one user as its own "Day N in review" message, rebuilt by the engine with the current digest builder. Body: `{user, day, apply?}`. Dry run unless
+        `apply` is true; a day already issued as a card is never issued twice. Logged on every call. Vault-free (the engine's witnessed and surfaced lines only)."""
+        require_admin(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        user = body.get("user") if isinstance(body, dict) else None
+        day = body.get("day") if isinstance(body, dict) else None
+        if not isinstance(user, str) or not user.strip() or not isinstance(day, int) or isinstance(day, bool) or day < 1:
+            return JSONResponse({"ok": False, "reason": "body needs user (string) and day (integer >= 1)"}, status_code=400)
+        from src import orwell_day_recap
+        report = await orwell_day_recap.reissue(user.strip(), day, apply=bool(body.get("apply")))
+        return {"ok": True, **report}
+
     @router.post("/ops/behavioral-flags")
     async def admin_behavioral_flags_set(request: Request):
         """B2 (gap-audit G6/#1840): the admin dial's WRITE side — flip one or more "living
@@ -2763,6 +2790,15 @@ function render(d) {
       const per = Object.entries(c.byKind || {}).filter(kv => kv[1].checked || kv[1].unbacked).map(kv => esc(kv[0]) + " " + esc(kv[1].unbacked) + "/" + esc(kv[1].checked) + " unbacked (" + esc(kv[1].regenerated) + " redone, " + esc(kv[1].committed) + " committed)").join(", ") || "none";
       return B(!c.unbackedShown, c.unbackedShown ? c.unbackedShown + " SHOWN" : "NONE SHOWN") + " · checked " + esc(c.total.checked) + " · unbacked " + esc(c.total.unbacked) + " · " + per;
     })(d.predisplay)],
+    ["Intent gates", (function (g) {
+      if (!g) return '<span class="sub">—</span>';
+      const c = g.corpus;
+      const rate = function (r) { if (r == null) return "n/a"; return (r * 100).toFixed(1) + "%"; };
+      const dec = Object.entries(g.byGate || {}).filter(kv => kv[1].fired + kv[1].skipped).map(kv => esc(kv[0]) + " " + esc(kv[1].fired) + " fire / " + esc(kv[1].skipped) + " skip").join(", ") || "none yet";
+      if (!c) return esc(g.decisions) + " decision(s) logged: " + dec + " · miss rates: no corpus built yet";
+      const miss = Object.entries(c.gates || {}).map(kv => esc(kv[0]) + " " + rate(kv[1].missRate) + " (" + esc(kv[1].misses) + "/" + esc(kv[1].positives) + ")").join(", ");
+      return esc(g.decisions) + " decision(s) logged: " + dec + " · corpus " + esc(c.rows) + " messages, " + esc(c.withAct) + " with an act · MISS RATE per gate: " + miss;
+    })(d.gates)],
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];

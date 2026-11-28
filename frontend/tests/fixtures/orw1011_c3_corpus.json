@@ -1665,7 +1665,11 @@
     "here": "hallway"
    },
    "exp": {
-    "scene": null,
+    "scene": [
+     "npc:4",
+     "npc:7",
+     "npc:6"
+    ],
     "moves": []
    },
    "belt": true
@@ -1764,7 +1768,12 @@
     "here": "backyard"
    },
    "exp": {
-    "scene": null,
+    "scene": [
+     "npc:5",
+     "npc:2",
+     "npc:7",
+     "npc:3"
+    ],
     "moves": []
    },
    "belt": true
@@ -1863,7 +1872,12 @@
     "here": "lounge"
    },
    "exp": {
-    "scene": null,
+    "scene": [
+     "npc:2",
+     "npc:3",
+     "npc:1",
+     "npc:4"
+    ],
     "moves": []
    },
    "belt": true
@@ -1961,7 +1975,12 @@
     "here": "backyard"
    },
    "exp": {
-    "scene": null,
+    "scene": [
+     "npc:4",
+     "npc:6",
+     "npc:1",
+     "npc:2"
+    ],
     "moves": []
    },
    "belt": true
@@ -4810,7 +4829,12 @@
     "here": "hallway"
    },
    "exp": {
-    "scene": null,
+    "scene": [
+     "npc:2",
+     "npc:5",
+     "npc:8",
+     "npc:4"
+    ],
     "moves": []
    },
    "belt": true
@@ -5066,6 +5090,1030 @@
     ],
     "asleep": [],
     "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-lock-01",
+   "cls": "grp-lock",
+   "text": "I tell you I have your back no matter what happens this week.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2",
+     "npc:5",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "lock": "npc:4"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lock-02",
+   "cls": "grp-lock",
+   "text": "I ask you honestly what you think of the plan.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:5",
+     "npc:6",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "lock": "npc:2"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lock-03",
+   "cls": "grp-lock",
+   "text": "I lower my voice and say I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3",
+     "npc:8",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "lock": "npc:2"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lock-04",
+   "cls": "grp-lock",
+   "text": "I tell you that you are the only one I would take to the end.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:3",
+     "npc:6",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "lock": "npc:8"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lock-05",
+   "cls": "grp-lock",
+   "text": "I say sorry for how I handled yesterday.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:5",
+     "npc:2",
+     "npc:1",
+     "npc:8",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "lock": "npc:7"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lock-06",
+   "cls": "grp-lock",
+   "text": "I ask you who you are voting for.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:4",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "lock": "npc:7"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lock-07",
+   "cls": "grp-lock",
+   "text": "I laugh and tell you that is the best story I have heard here.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:6",
+     "npc:4",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "lock": "npc:1"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lock-08",
+   "cls": "grp-lock",
+   "text": "I promise you I will keep this between us.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:5",
+     "npc:3",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen",
+    "lock": "npc:4"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-talkask-01",
+   "cls": "grp-talkask",
+   "text": "I lower my voice and say I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:2",
+     "npc:4",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "talk_ask": "npc:6"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-talkask-02",
+   "cls": "grp-talkask",
+   "text": "I tell you that you are the only one I would take to the end.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:7",
+     "npc:2",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "talk_ask": "npc:5"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-talkask-03",
+   "cls": "grp-talkask",
+   "text": "I say sorry for how I handled yesterday.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:3",
+     "npc:4",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "talk_ask": "npc:7"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-talkask-04",
+   "cls": "grp-talkask",
+   "text": "I ask you who you are voting for.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:4",
+     "npc:7",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "talk_ask": "npc:1"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lastpartner-01",
+   "cls": "grp-lastpartner",
+   "text": "I tell you I have your back no matter what happens this week.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:3",
+     "npc:5",
+     "npc:7",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "last_partner": "npc:4"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lastpartner-02",
+   "cls": "grp-lastpartner",
+   "text": "I tell you that you are the only one I would take to the end.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:2",
+     "npc:1",
+     "npc:5",
+     "npc:8",
+     "npc:6",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "last_partner": "npc:3"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lastpartner-03",
+   "cls": "grp-lastpartner",
+   "text": "I laugh and tell you that is the best story I have heard here.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:4",
+     "npc:2",
+     "npc:3",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "last_partner": "npc:6"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lastpartner-04",
+   "cls": "grp-lastpartner",
+   "text": "I answer that I am not sure yet and ask you what you would do.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:4",
+     "npc:5",
+     "npc:3",
+     "npc:2",
+     "npc:6",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "last_partner": "npc:8"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lastpartner-05",
+   "cls": "grp-lastpartner",
+   "text": "I lower my voice and say I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:4",
+     "npc:8",
+     "npc:6",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "last_partner": "npc:7"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-lastpartner-06",
+   "cls": "grp-lastpartner",
+   "text": "I ask you who you are voting for.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:8",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "kitchen",
+    "last_partner": "npc:5"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-speaker-01",
+   "cls": "grp-speaker",
+   "text": "I ask you who you are voting for.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:4",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "prev": "Nell leaned in. \"Are you really going to trust them with this?\" Nell asked, glancing at the door."
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-speaker-02",
+   "cls": "grp-speaker",
+   "text": "I laugh and tell you that is the best story I have heard here.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:6",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "prev": "\"We need to talk about the vote,\" Levi said quietly, and waited for an answer."
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-speaker-03",
+   "cls": "grp-speaker",
+   "text": "I promise you I will keep this between us.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:7",
+     "npc:5",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "prev": "Dana crossed the room. \"What did you hear this morning?\" Dana whispered."
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-speaker-04",
+   "cls": "grp-speaker",
+   "text": "I tell you I need your help with something.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:6",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "prev": "\"I am not sure about any of this,\" Levi admitted, looking at the player."
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-speaker-05",
+   "cls": "grp-speaker",
+   "text": "I answer that I am not sure yet and ask you what you would do.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:6",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "prev": "Gus smiled thinly and said, \"So what is your plan?\""
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-speaker-06",
+   "cls": "grp-speaker",
+   "text": "I tell you I have your back no matter what happens this week.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:6",
+     "npc:2",
+     "npc:3",
+     "npc:5",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "prev": "\"You never told me where you stand,\" Theo murmured."
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-no-context-01",
+   "cls": "grp-no-context",
+   "text": "I tell you I have your back no matter what happens this week.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:5",
+     "npc:7",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "prev": "The room was quiet. Nell Ashby stirred the coffee and the others picked at their food."
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-no-context-02",
+   "cls": "grp-no-context",
+   "text": "I ask you honestly what you think of the plan.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:5",
+     "npc:1",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "prev": "Wind moved through the yard and nobody said much of anything."
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-no-context-03",
+   "cls": "grp-no-context",
+   "text": "I lower my voice and say I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:6",
+     "npc:2",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "prev": "The room was quiet. Nell Ashby stirred the coffee and the others picked at their food."
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-broadcast-01",
+   "cls": "grp-broadcast",
+   "text": "I tell everyone I am done playing games this week.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen",
+    "last_partner": null
+   },
+   "exp": {
+    "scene": [
+     "npc:7",
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-broadcast-02",
+   "cls": "grp-broadcast",
+   "text": "I tell everybody that I will not be pushed around.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "last_partner": null
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-broadcast-03",
+   "cls": "grp-broadcast",
+   "text": "I say to all of you that the vote is not decided.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:8",
+     "npc:1",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen",
+    "last_partner": null
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:8",
+     "npc:1",
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-broadcast-04",
+   "cls": "grp-broadcast",
+   "text": "I tell you guys I want an honest week from now on.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:1",
+     "npc:7",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "last_partner": null
+   },
+   "exp": {
+    "scene": [
+     "npc:4",
+     "npc:1",
+     "npc:7",
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-broadcast-05",
+   "cls": "grp-broadcast",
+   "text": "I tell you all that I am proud of how we have played.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "last_partner": null
+   },
+   "exp": {
+    "scene": [
+     "npc:5",
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-named-overrides-01",
+   "cls": "grp-named-overrides",
+   "text": "I tell Maeve I have Maeve's back this week.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3",
+     "npc:7",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "last_partner": "npc:2"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-named-overrides-02",
+   "cls": "grp-named-overrides",
+   "text": "I ask Ines what Ines thinks of the plan.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:5",
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "last_partner": "npc:1"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-named-overrides-03",
+   "cls": "grp-named-overrides",
+   "text": "I thank Levi for the earlier help and say it meant a lot.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2",
+     "npc:1",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "last_partner": "npc:4"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-named-overrides-04",
+   "cls": "grp-named-overrides",
+   "text": "I whisper to Maeve that we should stay close.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:3",
+     "npc:8",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "last_partner": "npc:4"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "grp-conflict-01",
+   "cls": "grp-conflict",
+   "text": "I say sorry for how I handled yesterday.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:7",
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "last_partner": "npc:5",
+    "prev": "Nell leaned in. \"Are you really going to trust them with this?\" Nell asked, glancing at the door."
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-conflict-02",
+   "cls": "grp-conflict",
+   "text": "I ask you who you are voting for.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:1",
+     "npc:4",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "last_partner": "npc:6",
+    "prev": "\"We need to talk about the vote,\" Dana said quietly, and waited for an answer."
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-conflict-03",
+   "cls": "grp-conflict",
+   "text": "I laugh and tell you that is the best story I have heard here.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:4",
+     "npc:8",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen",
+    "last_partner": "npc:5",
+    "prev": "Theo crossed the room. \"What did you hear this morning?\" Theo whispered."
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-ooc-01",
+   "cls": "grp-ooc",
+   "text": "((can you speed up the clock a little))",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:7",
+     "npc:4",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "lock": "npc:2"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-ooc-02",
+   "cls": "grp-ooc",
+   "text": "(brb two minutes)",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:2",
+     "npc:1",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "lounge",
+    "lock": "npc:7"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-ooc-03",
+   "cls": "grp-ooc",
+   "text": "[ooc] how many houseguests are left",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:6",
+     "npc:8",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "hallway",
+    "lock": "npc:4"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-player-move-01",
+   "cls": "grp-player-move",
+   "text": "I walk to the backyard.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:1",
+     "npc:5",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "last_partner": "npc:4"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-player-move-02",
+   "cls": "grp-player-move",
+   "text": "I head over to the hallway to clear my head.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "living-room",
+    "last_partner": "npc:3"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "grp-player-move-03",
+   "cls": "grp-player-move",
+   "text": "I go into the dining room and look around.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:5",
+     "npc:3",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "backyard",
+    "last_partner": "npc:1"
    },
    "exp": {
     "scene": null,

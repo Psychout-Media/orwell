@@ -131,6 +131,79 @@ def _summoned(text: str, name: str) -> bool:
     return bool(first and re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", text or "", re.I) and _ARRIVE_RE.search(text or ""))
 
 
+# ── ORW-1170: who the player addresses in a group, from engine-known context ───────────────────
+_LAST_PARTNER: dict = {}
+_PARTNER_TTL_S = 1800.0
+_SECOND_PERSON_RE = re.compile(r"\b(you|your|yours|you're|you've|you'll|you'd|yourself)\b", re.I)
+_BROADCAST_RE = re.compile(r"\b(everyone|everybody|all of you|you all|y'all|you guys|guys|you two|you both|both of you|everyone's|the group|folks)\b", re.I)
+_SPEECH_VERB = (r"(?:says|said|asks|asked|whispers|whispered|replies|replied|murmurs|murmured|mutters|muttered|tells|told|answers|answered|adds|added|"
+                r"wonders|wondered|snaps|snapped|offers|offered|admits|admitted|demands|demanded|suggests|suggested|calls out|called out)")
+
+
+def remember_partner(user, room: Any, ids: list) -> None:
+    """A recorded scene with exactly one houseguest makes that houseguest the ongoing partner in that room; a group scene or another room clears it."""
+    with _LOCK:
+        if room and isinstance(ids, list) and len(ids) == 1:
+            _LAST_PARTNER[user or "default"] = {"id": ids[0], "room": room, "at": time.monotonic()}
+        else:
+            _LAST_PARTNER.pop(user or "default", None)
+
+
+def last_partner(user, room: Any) -> Optional[str]:
+    with _LOCK:
+        d = _LAST_PARTNER.get(user or "default")
+    if d and d.get("room") == room and time.monotonic() - d.get("at", 0) <= _PARTNER_TTL_S:
+        return d.get("id")
+    return None
+
+
+def reset_partner() -> None:
+    with _LOCK:
+        _LAST_PARTNER.clear()
+
+
+def last_speaker(prev: Any, people: list) -> Optional[str]:
+    """The ONE present houseguest the story's last reply shows speaking (a name next to a speech verb, with a quoted line in the reply). None when none or several."""
+    t = str(prev or "")
+    if not t or '"' not in t and "\u201c" not in t:
+        return None
+    found = []
+    for p in people:
+        for f in _name_forms(p.get("name")):
+            if re.search(r"(?<![\w'])" + re.escape(f) + r"(?:\s+\w+ly)?\s+" + _SPEECH_VERB + r"\b", t, re.I) \
+                    or re.search(r"[,.?!][\"\u201d]\s*(?:,\s*)?" + re.escape(f) + r"(?:\s+\w+ly)?\s+" + _SPEECH_VERB + r"\b", t, re.I):
+                found.append(p["id"])
+                break
+    return found[0] if len(found) == 1 else None
+
+
+def resolve_partner(view: dict, text: str) -> tuple:
+    """(id, source) of the houseguest an unnamed message is meant for, from engine truth only, or (None, why). Order: the private-talk lock, an open ask for a private word,
+    the last scene's partner, then the one houseguest who spoke last turn (needs a second-person reply or a question put to the player). Two sources that disagree resolve to
+    nothing. A message that addresses the whole group has no single partner."""
+    awake = set(view.get("awake") or [])
+    if _BROADCAST_RE.search(text or ""):
+        return None, "broadcast"
+    lock = view.get("lock")
+    if lock in awake:
+        return lock, "lock"
+    cands = []
+    for src in ("talk_ask", "last_partner"):
+        v = view.get(src)
+        if v in awake and v not in [c[0] for c in cands]:
+            cands.append((v, src))
+    sp = view.get("last_speaker")
+    if sp in awake and sp not in [c[0] for c in cands]:
+        qs = "?" in str(view.get("prev") or "")
+        if _SECOND_PERSON_RE.search(text or "") or qs:
+            cands.append((sp, "speaker"))
+    if len(cands) == 1:
+        return cands[0]
+    if len(cands) > 1 and cands[0][1] == "talk_ask":
+        return cands[0]  # an open ask for a private word is the strongest signal after the lock
+    return None, "conflict" if cands else "none"
+
+
 SYSTEM = (
     "You plan what the game records for ONE player message, before any story is written. Reply with ONLY one JSON object, no analysis, no prose, no code fence:\n"
     '{"act":"<talk|ooc|other>","scene":null,'
@@ -212,8 +285,16 @@ def validate(obj: dict, text: str, view: dict) -> dict:
                 codes.append("not-named")
             ids = kept
         elif len(awake) != 1:
-            codes.append("unnamed-ambiguous")  # nobody named and more than one could be meant: left to the belt
-            ids = []
+            pid, why = resolve_partner(view, text)
+            if pid:
+                ids = [pid]  # ORW-1170: the engine-known conversation partner, never a guess
+                codes.append("partner:" + why)
+            elif why == "broadcast" and 2 <= len(awake) <= MAX_PARTICIPANTS:
+                ids = list(awake)  # the whole group is addressed: a group scene with the people present
+                codes.append("group-broadcast")
+            else:
+                codes.append("unnamed-ambiguous")  # nobody named, no partner known: left to the belt
+                ids = []
         kind = scene.get("kind") if scene.get("kind") in KINDS else "strategy"
         content = str(scene.get("content") or "").strip()[:400] or None
         f = scene.get("feltMinutes")
@@ -343,6 +424,9 @@ async def commit_before_narrator(text: Any, user: Optional[str], *, sess: Any = 
         view = {"present": people, "awake": [p["id"] for p in people if p["id"] not in set(asleep)], "asleep": asleep,
                 "known": [{"id": h["id"], "name": str(h["name"])} for h in house], "rooms": list(_HOUSE_ROOMS), "room_names": names,
                 "here": wa.get("room"), "prev": previous_reply,
+                "lock": ((wa.get("privateTalk") or {}).get("with") or {}).get("id") if isinstance(wa.get("privateTalk"), dict) else None,
+                "talk_ask": ((state.get("openTalkAsk") or {}).get("from") or {}).get("id") if isinstance(state.get("openTalkAsk"), dict) else None,
+                "last_partner": last_partner(user, wa.get("room")), "last_speaker": last_speaker(previous_reply, people),
                 "pending": ((pend.get("kind") or pend.get("type") or "pending") if isinstance(pend, dict) and pend else None)}
         if call is None:
             from src.llm_core import llm_call_async
@@ -370,6 +454,8 @@ async def commit_before_narrator(text: Any, user: Optional[str], *, sess: Any = 
                     _ch._refresh_beat_seq(user, res)
                 except Exception:  # failsoft-ok: telemetry-only
                     pass
+        if d["scene"]:
+            remember_partner(user, wa.get("room"), d["scene"]["withIds"])
         put_stash(user, {"scene": d["scene"], "moves": done, "names": nm, "outcome": d["outcome"]})
         return bool(d["scene"] or done)
     except Exception as exc:

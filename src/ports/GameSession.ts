@@ -2373,6 +2373,8 @@ export interface WhereaboutsView {
    * present only when someone changed - so the story can voice a short arrival/departure beat and story and widget move together. Absent when nothing changed or the player changed rooms.
    */
   sinceSend?: { arrived: string[]; departed: string[] };
+  /** ORW-1169: the player is in a private talk with this houseguest (both are busy until it ends: no move, no plan, nobody walks in). Absent otherwise. */
+  privateTalk?: { with: NamedRef };
   /**
    * 0197 / ORW-631: a lead a houseguest gave the player (ORW-475, asking around) that the player has since SEEN did not hold up: the room named, and where the player found the person if they did. Plain observed
    * facts, shown for a few turns. It never says whether the lead was stale or meant to mislead; the player decides whether to call it out. Absent when none lately.
@@ -2734,8 +2736,10 @@ export interface RecordEpisodeTitlesResult {
 export interface DailyRecapView {
   /** The 1-based in-game day this recap closes (ADR 0006's clock; not a calendar day). */
   day: number;
-  /** The player's witnessed ceremony/scene/deal highlights for the day, straight from the record. */
+  /** The player's witnessed day, one line per moment (ORW-1165): the same texts as `digest`, in the order they happened. */
   highlights: string[];
+  /** ORW-1165: the day's lines with their KIND (arrival, toast, bed, deal, alliance, talk, clash, bond, ceremony, ...), so a client can group them. Vault-free: witnessed events only, never hidden. */
+  digest?: Array<{ kind: string; text: string; /** ids (event-log positions) of the recorded events the line is built from (each witnessed by the player, none hidden); empty for the player's bed read from the bed table */ eventCursor: string[] }>;
   /** Gossip that reached the player's own knowledge today via a real in-game pathway (0002). */
   surfaced: string[];
   /** ORW-382: the scenes the player WITNESSED today (their own knowledge, never a hidden event), whether or not a ceremony or deal made the highlights (the same text is not listed twice) - so every bedtime, the premiere night included, has something to review. Absent when empty. */
@@ -3794,7 +3798,8 @@ export interface GameSession {
    * closed (pre-game, the clock isn't running, or the player hasn't turned in yet). Vault-free,
    * reproducible: re-reading returns the exact same materialized view every time.
    */
-  dailyRecap(): DailyRecapView | null;
+  /** ORW-1165: with `rebuildDay`, a closed day's recap rebuilt over the same slice of the record with the current digest builder (pure read; null when the day or its slice is unknown). */
+  dailyRecap(opts?: { rebuildDay?: number }): DailyRecapView | null;
 
   /**
    * ORW-271 — the append-only per-night day ledger (Vault-free; `[]` before any night closed). FE read.
