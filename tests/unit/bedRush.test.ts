@@ -142,12 +142,13 @@ describe("the bed rush: save and restore mid-rush", () => {
 });
 
 describe("the bed rush: flag off is the old behaviour", () => {
-  it("off, NPCs claim as they walk in and the rush never runs", () => {
+  it("off, nobody claims as they walk in (ORW-1134); the claims run when the circle closes and the rush never runs", () => {
     const s = new GameSessionRegistry().sandboxFor(`bedrush-${n++}`).session as GameSessionAdapter;
     s.setPremiereEntrancesEnabled(true); s.setBedRushEnabled(false);
     s.createCharacter({ playerName: "P", seed: 7 });
     s.noteMessage({ messageId: "m1" });
-    for (let i = 0; i < 4; i++) step(s);
+    for (let i = 0; i < 60 && liveOf(s).premiereEntrance!.stage !== "done"; i++) { step(s); if (liveOf(s).premiereEntrance!.stage !== "done") expect(liveOf(s).beds?.claims.length ?? 0).toBe(0); }
+    (s as unknown as { ensureBeds(): unknown }).ensureBeds();
     expect(liveOf(s).beds!.claims.length).toBeGreaterThan(0);
     expect(liveOf(s).bedRush).toBeUndefined();
   });

@@ -26,19 +26,21 @@ function premiere(played = true) {
 const step = (s: GameSessionAdapter) => { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); };
 /** advance the staged entrances until the player is inside */
 const walkIn = (s: GameSessionAdapter) => { for (let i = 0; i < 20 && liveOf(s).premiereEntrance!.arrived <= liveOf(s).premiereEntrance!.playerPos; i++) step(s); };
+/** ORW-1134: beds open after the circle - run the entrances and the toast to the host's close (nobody holds a bed on the way). */
+const circleClosed = (s: GameSessionAdapter, leaveOpen = true) => { for (let i = 0; i < 80 && liveOf(s).premiereEntrance!.stage !== "done"; i++) { step(s); if (liveOf(s).premiereEntrance!.stage !== "done") expect(liveOf(s).beds?.claims.length ?? 0, "no bed before the circle closes").toBe(0); } expect(liveOf(s).premiereEntrance!.stage).toBe("done"); (s as unknown as { ensureBeds(): unknown }).ensureBeds(); /* rush off: the claims run at the close */ if (leaveOpen) { const b = liveOf(s).beds!; for (const c of [...b.claims]) if (roomOfBed(b.owner[c.who]!) !== "bedroom-b") { delete b.owner[c.who]; b.claims.splice(b.claims.indexOf(c), 1); } /* fixture: only bedroom-b is full, so the player's window has spots in the other two; the close's claims have run, so the idempotent claim step stays out of the way */ (s as unknown as { ensureBeds(): unknown }).ensureBeds = () => liveOf(s).beds; } };
 const nameOf = (s: GameSessionAdapter, id: string) => s.getGameState().house.find((h) => h.id === id)!.name;
 
 describe("the move-in bed pick (ORW-466 slice 2)", () => {
-  it("NPCs claim as they walk in, in entrance order: those inside own beds, those still outside do not", () => {
+  it("ORW-1134: nobody claims on walking in; with the rush off the first claims come at the circle's close, in entrance order", () => {
     const s = premiere();
     walkIn(s); step(s); // one more arrival after the player
+    expect(liveOf(s).beds?.claims.length ?? 0, "arrivals hold no bed").toBe(0);
+    circleClosed(s, false);
     const pe = liveOf(s).premiereEntrance!;
     const beds = liveOf(s).beds!;
-    const inside = pe.order.slice(0, pe.arrived).filter((id) => id !== "player");
-    const outside = pe.order.slice(pe.arrived);
-    for (const id of inside) expect(beds.owner[id], "an arrived houseguest owns a bed").toBeDefined();
-    for (const id of outside) expect(beds.owner[id], "a houseguest still outside has not picked").toBeUndefined();
-    expect(beds.claims.map((c) => c.who), "claims follow the entrance order (early arrivals pick first)").toEqual(inside);
+    const npcs = pe.order.filter((id) => id !== "player");
+    for (const id of npcs) expect(beds.owner[id], "everyone owns a bed once the circle is closed").toBeDefined();
+    expect(beds.claims.map((c) => c.who), "claims follow the entrance order (early arrivals pick first)").toEqual(npcs);
   });
 
   it("a social houseguest picks the busier room, a private one the quiet room (no luck)", () => {
@@ -63,7 +65,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
 
   it("the player's claim in their own words lands in the engine before the narrator writes, and the narrator's BEDS line says so", () => {
     const s = premiere();
-    walkIn(s);
+    circleClosed(s);
     const room = "bedroom-c";
     s.resolvePlayerMove({ text: `I'll take the bed by the window in ${roomDisplayName(room)}.` });
     expect(roomOfBed(liveOf(s).beds!.owner["player"]!)).toBe(room);
@@ -76,7 +78,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     const s = premiere();
     const theme = HOUSE_THEMES[0]!;
     liveOf(s).houseTheme = theme.id;
-    walkIn(s);
+    circleClosed(s);
     const room = "bedroom-a";
     const themed = roomNamesFor(theme.id)![room]!; // ORW-968: the shown name says the plain word
     const alias = themedRoomAliases(theme.id).filter(([, r]) => r === room).map(([a]) => a).sort((x, y) => x.length - y.length)[0]!;
@@ -91,7 +93,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
   it("a taken bed: the owner refuses a swap when they don't like the player and accepts when they do", () => {
     for (const [affinity, yes] of [[0, false], [0.95, true]] as const) {
       const s = premiere();
-      walkIn(s);
+      circleClosed(s);
       const beds = liveOf(s).beds!;
       const owner = Object.keys(beds.owner).find((id) => id !== "player")!;
       const theirs = beds.owner[owner]!;
@@ -105,7 +107,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
 
   it("a half-double swap is a shared trade: the spot owner AND the other half's sleeper must agree (Ryne 2026-11-15: \"they should get a say\")", () => {
     const s = premiere();
-    walkIn(s);
+    circleClosed(s);
     const beds = liveOf(s).beds!;
     const [a, b] = Object.keys(beds.owner).filter((id) => id !== "player");
     // seat the two in one double (trading spots with whoever held those halves)
@@ -125,7 +127,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
 
   it("a swap is recorded as a swap in the claim history, and a player who shares the owner's double is not their own veto", () => {
     const s = premiere();
-    walkIn(s);
+    circleClosed(s);
     const beds = liveOf(s).beds!;
     const [a] = Object.keys(beds.owner).filter((id) => id !== "player");
     const seat = (who: string, spot: string) => { const held = Object.keys(beds.owner).find((o) => beds.owner[o] === spot); if (held && held !== who) beds.owner[held] = beds.owner[who]!; beds.owner[who] = spot; };
@@ -143,7 +145,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
       s.setPerConversationClockEnabled(true);
       for (let i = 0; i < 80 && liveOf(s).nightDepth === undefined; i++) step(s);
       for (let i = 0; i < 400 && liveOf(s).timeOfDay !== "night"; i++) s.advanceClockPerConversation();
-      expect(liveOf(s).beds!.owner["player"], "no bed before bedtime").toBeUndefined();
+      expect(liveOf(s).beds?.owner["player"], "no bed before bedtime").toBeUndefined();
       s.turnIn({});
       const beds = liveOf(s).beds!;
       expect(beds.claims.find((c) => c.who === "player")?.why).toBe("leftover");

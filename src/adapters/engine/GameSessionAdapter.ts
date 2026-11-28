@@ -9102,12 +9102,13 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s || !this.house || s.playedGame !== true) return undefined;
     s.beds ??= { owner: {}, claims: [] };
-    // ORW-672 / 0201: with the bed rush on, NO NPC claims on walking in (nor on the first message): the claims run on the rush's own ticks, after the toast, each on reaching the room.
-    if (this.bedRushEnabled && ((s.premiereEntrance && !s.bedRush?.done) || (s.bedRush && !s.bedRush.done))) return s.beds;
-    // ORW-466 slice 2: every NPC already INSIDE claims, in entrance order (a staged premiere still in its entrances: only those who have walked in). Idempotent - an NPC with a bed is skipped,
-    // so calling this at each arrival claims for that arrival (and catches up whoever walked in before the game was played, still in their order).
     const pe = s.premiereEntrance;
-    const order = pe ? (pe.stage === "entrances" ? pe.order.slice(0, pe.arrived) : pe.order) : [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
+    // ORW-1134 (Ryne 2026-11-28: "Beds open after the circle"): during the staged entrances and the toast NOBODY claims a bed, whatever the rush flag says. The first claim of the season is the rush, after the host closes the circle.
+    if (pe && pe.stage !== "done") return s.beds;
+    // ORW-672 / 0201: with the bed rush on, no NPC claims at the close either: the claims run on the rush's own ticks, each on reaching the room.
+    if (this.bedRushEnabled && ((pe && !s.bedRush?.done) || (s.bedRush && !s.bedRush.done))) return s.beds;
+    // ORW-466 slice 2 (rush off, or a played game with no staged premiere): every NPC claims in entrance order. Idempotent - an NPC with a bed is skipped.
+    const order = pe ? pe.order : [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
     const living = new Set(this.livingIds());
     for (const who of order) if (who !== PLAYER && living.has(who) && !s.beds.owner[who]) this.claimNpcBed(s.beds, who, living);
     return s.beds;
@@ -10642,7 +10643,7 @@ export class GameSessionAdapter implements GameSession {
     if (pe.stage === "entrances") {
       const r = this.recordArrival(pe.arrived);
       pe.arrived += 1;
-      this.ensureBeds(); // ORW-466 slice 2: the arriver claims a bed as they walk in (a played game only; headless games stay bed-free)
+      // ORW-1134: no bed is claimed on walking in (ORW-466 slice 2 did): the first claim is the bed rush, after the circle closes
       this.applyTourPlacement(); // ORW-654 / 0206: the new arrival (and everyone inside) takes their place on the tour
       if (r.playerEntrance) this.noteRoomEntry("living-room"); // ORW-654 / 0206: the player walks in through the common area - their first card
       if (pe.arrived >= pe.order.length && !s.houseTour) { // ORW-654 / 0206: on the tour the house stays open after the last arrival; the NEXT advance calls the circle
