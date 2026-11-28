@@ -1665,12 +1665,14 @@ async def form_alliance(name: str, members: list, expected_beat_seq: int | None 
     return await _call("formAlliance", args, user=user)
 
 
-async def join_alliance(alliance_id: str, expected_beat_seq: int | None = None, user: str | None = None, name: str | None = None) -> dict:
+async def join_alliance(alliance_id: str, expected_beat_seq: int | None = None, user: str | None = None, name: str | None = None, inviter: str | None = None) -> dict:
     """Feature 0107 Phase B — the player ACCEPTS an NPC's pitch and joins their named alliance. The
     engine is the single authority: only a live pitch (the player is `knownTo` but not yet a member)
     AND a close-enough bond with the founder lets them in — a cold "add me" is refused. 0065 Part A —
     the optional `expected_beat_seq` CAS token threads in only when provided."""
-    args: dict = {"allianceId": alliance_id}
+    args: dict = {"allianceId": alliance_id} if alliance_id else {}
+    if inviter:
+        args["inviter"] = inviter  # ORW-1178: the houseguest who invited the player and heard the yes; the engine joins the alliance they are really in (or founds one with them)
     if name:
         args["name"] = name  # ORW-509: the group's own name, authored by the narrator; the engine accepts it only under its naming rules
     if expected_beat_seq is not None:

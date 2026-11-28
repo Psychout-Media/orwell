@@ -673,6 +673,8 @@ export interface GameStateView {
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
   /** ORW-794 (moment prompt only): the alliances an NPC has let the player in on and the player has not taken (the same Vault-free view `gameStatus.alliancePitches` shows: id, name, the roster the player was told). Absent when none is open. */
   alliancePitchesOpen?: AllianceView[];
+  /** ORW-1178 (moment prompt only): the alliances the player is really in, with the engine's roster, so a group the narration names carries these members and no others. Absent when the player is in none. */
+  alliancesHeld?: AllianceView[];
   /** ORW-920 (moment prompt only, this turn and the next): the player tried to go to bed before the night and `turnIn` answered `held`. Whole minutes until the night period opens, read fresh from the clock (never shown to the player as a number: the prompt phrases it). Absent otherwise. */
   bedtimeHeld?: { minutesUntil: number };
   /** ORW-913 (moment prompt only, two turns): the alliance the player proposed did not form (the houseguests are not close enough to the player yet): its name (the player's own words) and the houseguests it was proposed to. Never a number or a hidden reason. */
@@ -936,7 +938,10 @@ export interface FormAllianceReq {
 
 /** 0107 Phase B — the player accepts an alliance an NPC pitched them into (by its id). */
 export interface JoinAllianceReq {
-  allianceId: string;
+  /** The pitched alliance's id (from `alliancePitches`). Omitted when `inviter` names the houseguest who asked the player in (ORW-1178). */
+  allianceId?: string;
+  /** ORW-1178: the houseguest who invited the player into their group and heard the player's yes. The engine joins the alliance that houseguest is really in (the invitation lets the player in on it), or founds a new one with them; the closeness gate still applies. */
+  inviter?: EntityId;
   /** ORW-509: the name this group would give itself, authored by the narrator from their story at the moment the player is let in. The engine accepts it only if it passes the naming rules (3-40 chars, no houseguest name, not in use or used last season); otherwise the engine's name stands. */
   name?: string;
   expectedBeatSeq?: number;

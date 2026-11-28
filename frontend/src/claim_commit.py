@@ -27,7 +27,8 @@ CLAIM_SLEEP = "claim-sleep"
 CLAIM_BED = "claim-bed"
 CLAIM_ALLIANCE = "claim-alliance"
 CLAIM_DEAL = "claim-deal"
-KINDS = (CLAIM_BED, CLAIM_ALLIANCE, CLAIM_DEAL)  # sleep is NOT checked here: ORW-1154 (#3496) holds an unbacked sleep claim; this module keeps only what it does not cover
+CLAIM_ROSTER = "claim-roster"  # ORW-1178: a group the narration names by the engine's own alliance name, with houseguests the engine does not hold in it
+KINDS = (CLAIM_BED, CLAIM_ALLIANCE, CLAIM_DEAL, CLAIM_ROSTER)  # sleep is NOT checked here: ORW-1154 (#3496) holds an unbacked sleep claim; this module keeps only what it does not cover
 FACTS = frozenset(KINDS)
 # the claim kinds the existing pre-display facts already cover (counted here as claims too, so one ledger shows every class)
 EXTERNAL_KINDS = ("move", "time", "presence")
@@ -179,6 +180,42 @@ def unbacked(text: str, state: Any, owner: Any, *, in_quote: bool = False) -> "l
     return [c for c in extract_claims(text, in_quote=in_quote) if not backed(c.kind, state, owner)]
 
 
+def _norm_group(t: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", re.sub(r"^the\s+", "", str(t or "").strip().lower())).strip()
+
+
+def roster_conflict(text: str, state: Any, *, in_quote: bool = False) -> str:
+    """ORW-1178: "" when fine, else the engine's real roster ("A, B, C") of an alliance the narration names but whose members it speaks wrongly.
+    A sentence that names one of the engine's alliances (the player's own, or one pitched to them) AND names a houseguest the engine does not hold in that alliance is a roster the engine contradicts.
+    Pure, fail-open, no model. The player is never a "named houseguest" here."""
+    try:
+        st = state if isinstance(state, dict) else {}
+        groups = [g for k in ("alliances", "alliancePitches") for g in (st.get(k) or []) if isinstance(g, dict) and g.get("name")]
+        if not groups:
+            return ""
+        from src import predisplay_check as pd
+        people = {str(h.get("name")) for h in (st.get("house") or []) if isinstance(h, dict) and h.get("name")}
+        for g in groups:
+            people |= {str(m.get("name")) for m in (g.get("members") or []) if isinstance(m, dict) and m.get("name")}
+        for sent in _narration(text, in_quote):
+            low = _norm_group(sent)
+            for g in groups:
+                gname = _norm_group(g.get("name"))
+                if not gname or not re.search(r"(?<![a-z0-9])" + re.escape(gname) + r"(?![a-z0-9])", low):
+                    continue
+                members = [str(m.get("name")) for m in (g.get("members") or []) if isinstance(m, dict) and m.get("name")]
+                held = {f.lower() for n in members for f in pd._name_forms(n)}
+                for person in sorted(people):
+                    forms = pd._name_forms(person)
+                    if any(f.lower() in held for f in forms):
+                        continue
+                    if any(re.search(r"(?<![A-Za-z])" + re.escape(f) + r"(?![A-Za-z])", sent) for f in forms):
+                        return ", ".join(members)
+        return ""
+    except Exception:  # failsoft-ok: an unreadable check never holds narration
+        return ""
+
+
 def claim_conflicts(text: str, state: Any, owner: Any, *, in_quote: bool = False) -> "list[tuple[str, str]]":
     """[(fact, detail)] for each distinct claim kind in `text` that has no commit behind it. The detail is the engine's real value the correction names ("" when there is none)."""
     try:
@@ -188,6 +225,9 @@ def claim_conflicts(text: str, state: Any, owner: Any, *, in_quote: bool = False
             if c.kind in seen:
                 continue
             seen[c.kind] = ""
+        roster = roster_conflict(text, st, in_quote=in_quote)  # ORW-1178: the narrated members must equal the engine's, committed or not
+        if roster:
+            seen[CLAIM_ROSTER] = roster
         return list(seen.items())
     except Exception:  # failsoft-ok: an unreadable check never holds narration
         return []
@@ -198,6 +238,9 @@ def correction_for(fact: str, detail: str = "") -> str:
         return "The narration gave the player a bed but the game has not recorded a claim. Do not say a bed is claimed or theirs; show the beds as they are and leave the choice to the player."
     if fact == CLAIM_ALLIANCE:
         return "The narration formed an alliance but the player has not agreed to one and the game recorded none. Do not form, seal or join an alliance in the narration; houseguests may pitch one and the player answers."
+    if fact == CLAIM_ROSTER:
+        return ("The narration named the members of a group differently from the game. " + (f"The game holds exactly these in it: {detail}. " if detail else "")
+                + "Name the group's members only as the game holds them; do not add a houseguest the game does not have in it.")
     if fact == CLAIM_DEAL:
         return "The narration struck a deal but the game recorded none. Do not say a deal is made; a houseguest may offer terms and the player answers."
     return ""
