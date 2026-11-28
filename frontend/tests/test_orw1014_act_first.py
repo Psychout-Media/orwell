@@ -162,7 +162,7 @@ def test_advance_is_offered_only_for_a_watch_step_or_the_named_lever_with_no_soc
     assert r["acts"] == [("advance", {"lever": "advanceGame"})] and "advance" in names(r)
     r = run("let's keep going", [adv()], required_lever="advanceGame", here="lounge")
     assert r["acts"] == [("advance", {"lever": "advanceGame"})]
-    assert "advance" not in names(run("continue", [adv()], required_lever="advanceGame", social_hold=True, here="lounge"))
+    assert run("continue", [adv()], required_lever="advanceGame", social_hold=True, here="lounge")["outcome"] == "skipped:ungrounded"   # not offered, and nothing in the words grounds any other tool: no call (ORW-1014 pre-filter)
     assert run("continue", [adv()], required_lever="advanceGame", social_hold=True, here="lounge")["acts"] == []
     assert run("continue", [adv()], here="lounge")["acts"] == []   # the engine names no lever
     assert run("what happens next?", [adv()], required_lever="advanceGame", here="lounge")["acts"] == []   # a question is not a request
@@ -170,7 +170,7 @@ def test_advance_is_offered_only_for_a_watch_step_or_the_named_lever_with_no_soc
 
 
 def test_sleep_needs_the_loops_gate_and_comes_last_and_held_is_the_loops_to_voice():
-    assert "turnIn" not in names(run("I go to bed", [TURNIN], here="lounge"))
+    assert run("I go to bed", [TURNIN], here="lounge")["outcome"] == "skipped:ungrounded"   # the sleep gate is closed: turnIn is not offered, so there is nothing to ask
     r = run("I go to bed", [TURNIN], sleep_ok=True, here="bedroom-a")
     assert r["acts"] == [("turnIn", {})] and "turnIn" in names(r)
     assert run("I go to bed then go to the kitchen", [TURNIN, mv("kitchen")], sleep_ok=True, here="lounge")["acts"] == []
@@ -195,7 +195,7 @@ def test_claim_bed_names_a_bedroom_the_player_named_and_search_a_present_housegu
     assert run("can I swap beds with Dana", [cb("bedroom-a")], here="lounge")["acts"] == []
     s = {"name": "search", "arguments": {"who": "Levi"}}
     assert run("I look for Levi", [s], here="lounge", people=PEOPLE)["acts"] == [("search", {"who": "Levi Stone"})]
-    assert "search" not in names(run("I look for Levi", [NOACT], here="lounge"))   # no roster: not offered
+    assert run("I look for Levi", [NOACT], here="lounge")["outcome"] == "skipped:ungrounded"   # no roster: search is not offered and no room is named: no call
     assert run("I look for Levi", [{"name": "search", "arguments": {"who": "Dana"}}], here="lounge", people=PEOPLE)["acts"] == []   # not named in the words
 
 
