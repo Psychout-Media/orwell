@@ -48,7 +48,7 @@ const brokenDeal = (beliefs = true) =>
     const c = chain(seed, sandbox, beliefs); if (!c || c.partners.length <= 1) return undefined;
     const second = c.g.s.makeDeal(req(c.betrayed, "final-two")); return isRefusal(second) ? { ...c, second } : undefined;
   },
-    { from: 1, to: 16, hint: [3, 10], sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote" }).at;
+    { from: 1, to: 16, hint: [5, 3, 10], sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote" }).at;
 
 describe("ORW-82 REAL PATH: break a deal by your own vote, then propose to the same houseguest", () => {
   it("the betrayed partner refuses a second proposal for the break's own consequence; a partner not betrayed still accepts", () => {
