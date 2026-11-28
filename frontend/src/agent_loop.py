@@ -3280,6 +3280,11 @@ def _toast_batch_voiced(text: str, speakers) -> bool:
 _ENTRANCE_ARRIVAL_EVERY = 2
 
 
+# ORW-1140 (docs/design/premiere-entrances.md: "the next arrival comes ... immediately on next / watching"): a player who says he will wait for the rest to arrive wants the next entrance, one per turn, until all are in.
+_ENTRANCE_WAIT_RE = re.compile(r"\b(?:wait(?:ing)?|hold\s+(?:on|off)|stay)\b[^.!?\n]*\b(?:arriv\w*|everyone|everybody|the\s+rest|the\s+others?|last\s+(?:few|ones?|arrivals?)|gets?\s+here|come\s+in|show\s+up|walk\s+in)\b|"
+                               r"\b(?:see|meet|watch)\b[^.!?\n]*\b(?:last|remaining|rest\s+of|everyone\s+(?:else\s+)?(?:arrive|come|walk))", re.IGNORECASE)
+
+
 def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, stale: bool, stage=None):
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
@@ -3290,6 +3295,8 @@ def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, s
     # narrator's own advance_game call otherwise paces entrances. turns_since_progress is kept for the signature.
     if cue:
         return True, True
+    if stage == "entrances" and bool(s) and not _is_production_cue(s) and bool(_ENTRANCE_WAIT_RE.search(s)):
+        return True, True  # ORW-1140: waiting for the arrivals releases the next one (the arrival voice-hold still waits for the last one to be shown)
     if stage == "entrances" and turns_since_progress >= _ENTRANCE_ARRIVAL_EVERY and not _is_production_cue(s):
         return True, True  # Ryne 2026-11-08: the next arrival every 2-3 player messages until everyone is in
     return is_lull, stale

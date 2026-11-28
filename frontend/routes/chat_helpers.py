@@ -1188,12 +1188,12 @@ def note_premiere_turn(user, game_state) -> None:
             # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest
             # (the 2026-11-12 live run: in 7 of 10 logged arrival rounds the same-round reply never named them). Remember the arrival with the existing committed-beat voicing check: if the reply names
             # none of them, the post-turn check re-grounds the NEXT turn ("the engine committed this beat but your last turn never voiced it ... use ONLY the names given here").
-            if stage in ("entrances", "tour"):  # ORW-704: the last arrival(s) before the circle is called are owed too
+            if stage in ("entrances", "tour") or (stage == "toast" and not (((game_state or {}).get("premiere") or {}).get("entrance") or {}).get("speakers")):  # ORW-704: the last arrival(s) before the circle is called are owed too (ORW-1140: and the circle waits for them)
                 try:
                     _ent = ((game_state or {}).get("premiere") or {}).get("entrance") or {}
                     _ja = _ent.get("justArrived")
                     _jn = str((_ja or {}).get("name") or "").strip() if isinstance(_ja, dict) else ""
-                    if _jn:
+                    if _jn and stage != "toast":
                         note_ceremony_beat_for_voicing(user, f"{_jn} just walked in (premiere entrance {_ent.get('index')} of {_ent.get('total')})", [_jn])
                     # ORW-704: every arrival after the player that no reply has named yet is owed to this turn, not only the latest one.
                     _named = _ARRIVALS_NAMED.setdefault(key, set())
@@ -9428,6 +9428,23 @@ async def _walk_eviction_ballots(user, pending) -> int:
     return n
 
 
+def _toast_gate_owed(user, ent) -> list:
+    """ORW-1140: the arrivals after the player that no reply has named yet, while the circle has been called but has released nothing; the toast waits for them. Bounded by the arrival voice-hold cap, so it never stalls
+    the game (each held turn counts one; at the cap the gate opens). Pure besides that count."""
+    try:
+        key = _runway_key(user)
+        owed = [n for n in _post_player_arrivals(ent) if n not in _ARRIVALS_NAMED.get(key, set())]
+        if not owed:
+            _ARRIVAL_VOICE_HOLDS.pop(key, None)
+            return []
+        if _ARRIVAL_VOICE_HOLDS.get(key, 0) >= _ARRIVAL_VOICE_HOLD_CAP:
+            return []
+        _ARRIVAL_VOICE_HOLDS[key] = _ARRIVAL_VOICE_HOLDS.get(key, 0) + 1
+        return owed
+    except Exception:
+        return []
+
+
 def _premiere_arrival_due(user, game_state, player_msg) -> bool:
     """ORW-954: True when the premiere's staged-entrance cadence says the NEXT arrival is due on THIS player turn. Pure read of the stashes; mirrors the end-of-turn ladder
     (`agent_loop._entrance_pacing`, evaluated there AFTER this turn is counted, so the staleness clock reads one higher here). Only the `entrances` stage releases on cadence (not the
@@ -9445,6 +9462,9 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
             return False
         ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
         if stage == "toast":
+            # ORW-1140 (docs/design/premiere-entrances.md: one entrance voiced per turn, the toast follows the entrances): the circle does not open while an entrance the narrator was handed is still unvoiced.
+            if not ent.get("speakers") and _toast_gate_owed(user, ent):
+                return False
             # ORW-997: the toast batch is committed BEFORE the reply too, once the batch on the board has been voiced (or none is out yet) and the player asked for the next one.
             if not _entrance_release_resolved(user, game_state):
                 return False

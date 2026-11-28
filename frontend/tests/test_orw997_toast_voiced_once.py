@@ -68,6 +68,7 @@ def _wire(monkeypatch, board):
 
     monkeypatch.setattr(oe, "advance_game", advance_game)
     monkeypatch.setattr(ch, "_fetch_game_state", fetch)
+    ch._ARRIVALS_NAMED[ch._runway_key(USER)] = set(NAMES)  # ORW-1140: the entrances were voiced before the circle (this board starts at the toast)
 
 
 def _turn(board, msg, narrate=True):
