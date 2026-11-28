@@ -73,12 +73,34 @@ describe("the veto decision is a fact the narrator is handed", () => {
     if (planned.used) {
       expect(d.saved.id).toBe(live.saved);
       expect(d.replacement.id).toBe(live.replacement);
-      expect(ctx).toContain(`USED it on ${d.saved.id === live.vetoHolder ? "themselves" : d.saved.name}`);
+      expect(ctx).toContain(d.saved.id === live.vetoHolder ? "used it on THEMSELF" : `used it to save ${d.saved.name}`);
       expect(ctx).toContain(`named ${d.replacement.name} as the replacement`);
     } else {
       expect(ctx).toMatch(/did NOT use it/);
     }
     expect(ctx).not.toMatch(/NOT MADE YET/);
+  });
+
+  it("ORW-1052: a holder who is a nominee and saves themself is stated as a self-save, with the other nominee staying and the final two named", () => {
+    const s = boot();
+    toVetoCeremony(s);
+    const live = s.live as LiveSeasonState;
+    const [self, other] = live.nominees as [string, string];
+    live.vetoHolder = self;
+    s.ceremony = { ...s.ceremony, vetoHolder: self };
+    s.advanceGame(); // convene
+    s.advanceGame(); // result
+    expect(live.vetoUsed).toBe(true);
+    expect(live.saved).toBe(self);
+    const v = s.getGameState();
+    const nm = (id: string) => v.house.find((h: Any) => h.id === id)?.name as string;
+    const repl = v.ceremony.veto.decision.replacement.name as string;
+    const ctx = renderGameContext(v);
+    expect(ctx).toContain(`${nm(self)} holds the veto and USED it. ${nm(self)} used it on THEMSELF`);
+    expect(ctx).toContain(`The holder did NOT save anyone else`);
+    expect(ctx).toContain(`as the replacement nominee`);
+    expect(ctx).toContain(`The two on the block now are ${nm(other)} and ${repl}`);
+    expect(ctx).not.toContain(`to save ${nm(other)}`);
   });
 
   it("with the flag off neither fact is on the view or in the context (byte-identical)", () => {

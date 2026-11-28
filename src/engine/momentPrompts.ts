@@ -1205,9 +1205,20 @@ function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
   if (!d.made) {
     return ["    Veto decision: NOT MADE YET. The game announces it at the Veto Ceremony; until then nobody, the holder included, has decided, so no one states or hints which way it went, and nobody is named as coming down."];
   }
-  if (!d.used) return [`    Veto decision (made): ${cer.veto.holder.name} did NOT use it; the nominees stand as they are.`];
-  const saved = d.saved ? (d.saved.id === cer.veto.holder.id ? "themselves" : d.saved.name) : "a nominee";
-  return [`    Veto decision (made): ${cer.veto.holder.name} USED it on ${saved}${d.replacement ? `; ${cer.hoh ? cer.hoh.name : "the HOH"} named ${d.replacement.name} as the replacement` : ""}. Nobody else came down.`];
+  const holder = cer.veto.holder.name;
+  const finalBlock = cer.nominees.map((n) => n.name);
+  const onBlock = finalBlock.length ? finalBlock.join(" and ") : "the nominees the game lists";
+  if (!d.used) return [`    Veto decision (made, engine truth): ${holder} holds the veto and did NOT use it. Nobody was saved and nobody came off the block; no replacement. The two on the block are ${onBlock}.`];
+  // ORW-1052: a holder who is a nominee and saves THEMSELF was voiced as saving the OTHER nominee (the old line said only "USED it on themselves", which a narrator read past). State it as a self-save, name who stays, and the final two.
+  const self = !!d.saved && d.saved.id === cer.veto.holder.id;
+  const hohName = cer.hoh ? cer.hoh.name : "the HOH";
+  const savedLine = self
+    ? `${holder} used it on THEMSELF: ${holder} (the holder) is the one saved and came off the block. The holder did NOT save anyone else; no other nominee came down.`
+    : `${holder} used it to save ${d.saved ? d.saved.name : "a nominee"}, who came off the block. ${holder} is NOT the one saved; no one else came down.`;
+  const replLine = d.replacement ? `${hohName} named ${d.replacement.name} as the replacement nominee.` : "No replacement is recorded.";
+  return [
+    `    Veto decision (made, engine truth): ${holder} holds the veto and USED it. ${savedLine} ${replLine} The two on the block now are ${onBlock}; voice no other saved person and no other block.`,
+  ];
 }
 
 /** ORW-715: who is still on the floor of a staged competition and who is already out, so an eliminated houseguest is never put back into a later round or the final. */
@@ -2015,7 +2026,7 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     "- BOARD (engine-committed — the ONLY truth for these; name EXACTLY these people, never anyone else, and never invent a result):",
     `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : finalThree ? "nobody — in the Final 3 the HOH alone chooses which of the two remaining rivals leaves; do not call anyone a nominee" : "nobody yet — name no nominees"}.`,
     `    Veto: ${cer.veto.holder
-      ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
+      ? `held by ${cer.veto.holder.name}${cer.veto.used ? (cer.veto.decision?.made && cer.veto.decision.saved ? (cer.veto.decision.saved.id === cer.veto.holder.id ? " (used on THEMSELF: the holder is the one saved)" : ` (used to save ${cer.veto.decision.saved.name}, not the holder)`) : " (used)") : " (not used)"}`
       : finalThree
         ? "none — there is no Power of Veto in the Final 3; stage no veto"
         : "still being played or not yet decided — name no winner and no holder"}.`,
