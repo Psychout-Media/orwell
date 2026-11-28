@@ -54,7 +54,7 @@ async function play(seed: number, off: boolean) {
         finalStatus.set(a.id, a.status);
         if (a.status === "open" && fnn && fnn.length === 2) {
           const sp = sess.assuranceBindFor(a.from, fnn);
-          if (sp === a.to) { bound.add(a.id); bindsSeen++; if (a.from === sess.live?.hoh || fnn.includes(a.from) || a.from === "player" || sess.assuranceVoteFor(a.to, a.from) === 0) illegal++; }
+          if (sp === a.to) { bound.add(a.id); bindsSeen++; if (a.from === sess.live?.hoh || fnn.includes(a.from) || a.from === "player" || sess.assuranceVoteFor(a.to, a.from) === 0) illegal++; } else bound.delete(a.id); // ORW-1159: the pull moves with the bond and threat in the days before the vote; a bind the engine itself withdrew (the verdict turned to break) is no longer a bound voter at the ballot
         }
       }
       for (const a of sess.live?.assurances?.items ?? []) {

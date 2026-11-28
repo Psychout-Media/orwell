@@ -12,25 +12,30 @@ import { sessionCoreSupersetViolation, type SessionSnapshot } from "../../src/en
 type Snap = SessionSnapshot;
 describe("agenda non-degradation: the trusted window and the full check", () => {
   it("fires on a corrupted earlier history exactly where the window promises, and never on a genuine later state", async () => {
-    const reg = composeRuntime({ clock: new FakeClock(), seed: 1 }).registry;
-    const user = "agenda-844"; // seed 1 (ORW-779 moved seed 11: its agendas no longer reach three entries and grow inside the loop)
-    const mcp = reg.resolver()("player", user);
-    await mcp.callTool("createCharacter", { playerName: "The Player", seed: 1, archetype: "floater" });
     let earlier: Snap | undefined, later: Snap | undefined;
     const longest = (s: Snap): number => Math.max(0, ...Object.values(s.live?.agendas ?? {}).map((a) => a.history.length));
-    for (let i = 0; i < 1400 && !later; i++) {
-      await mcp.callTool("noteMessage", { messageId: `m${i}` });
-      if (i % 6 === 5) {
-        const adv = (await mcp.callTool("advanceGame", {})) as { pending?: { kind: string; options?: Array<{ id: string }> } };
-        if (adv.pending) {
-          const k = adv.pending.kind, o = (j: number) => adv.pending!.options?.[j]?.id;
-          try { await mcp.callTool("submitDecision", k === "nominations" ? { kind: k, choice: [o(0), o(1)] } : k === "veto-decision" ? { kind: k, use: false } : k === "comp-intent" || k === "comp-round" ? { kind: k, intent: "compete" } : k === "goodbye-message" ? { kind: k, vote: "respectful" } : { kind: k, vote: o(0) }); } catch { /* the next loop advances */ }
+    // The seed is PICKED, not pinned (ORW-1159: the conversation tether pins people in the player's room, which moved which season's agendas reach three entries and grow): the first seed whose game does both.
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      if (later) break;
+      earlier = undefined;
+      const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
+      const user = `agenda-844-${seed}`;
+      const mcp = reg.resolver()("player", user);
+      await mcp.callTool("createCharacter", { playerName: "The Player", seed, archetype: "floater" });
+      for (let i = 0; i < 1400 && !later; i++) {
+        await mcp.callTool("noteMessage", { messageId: `m${i}` });
+        if (i % 6 === 5) {
+          const adv = (await mcp.callTool("advanceGame", {})) as { pending?: { kind: string; options?: Array<{ id: string }> } };
+          if (adv.pending) {
+            const k = adv.pending.kind, o = (j: number) => adv.pending!.options?.[j]?.id;
+            try { await mcp.callTool("submitDecision", k === "nominations" ? { kind: k, choice: [o(0), o(1)] } : k === "veto-decision" ? { kind: k, use: false } : k === "comp-intent" || k === "comp-round" ? { kind: k, intent: "compete" } : k === "goodbye-message" ? { kind: k, vote: "respectful" } : { kind: k, vote: o(0) }); } catch { /* the next loop advances */ }
+          }
         }
-      }
-      if (i % 20 === 19) {
-        const snap = JSON.parse(JSON.stringify(reg.snapshot(user))) as Snap;
-        if (!earlier && longest(snap) >= 3) earlier = snap;
-        else if (earlier && longest(snap) > longest(earlier)) later = snap; // the history genuinely grew
+        if (i % 20 === 19) {
+          const snap = JSON.parse(JSON.stringify(reg.snapshot(user))) as Snap;
+          if (!earlier && longest(snap) >= 3) earlier = snap;
+          else if (earlier && longest(snap) > longest(earlier)) later = snap; // the history genuinely grew
+        }
       }
     }
     expect(earlier, "a played game reached an agenda history of three entries").toBeDefined();
