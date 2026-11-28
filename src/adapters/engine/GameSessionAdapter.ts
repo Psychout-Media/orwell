@@ -18901,7 +18901,7 @@ export class GameSessionAdapter implements GameSession {
     for (const e of events) {
       if (e.hidden) continue;
       const t = e.type as string;
-      if (isHighlight(e)) { push(e.type === "deal" ? "deal" : e.type === "betrayal" ? "betrayal" : "ceremony", e.content, [e.id]); continue; }
+      if (isHighlight(e)) { out.push({ kind: e.type === "deal" ? "deal" : e.type === "betrayal" ? "betrayal" : "ceremony", text: e.content, from: [e.id] }); continue; } // the record's own text, uncut (as before)
       if (!e.witnessSet.includes(PLAYER) || e.content.trim().length === 0) continue;
       if (t === "premiere-entrance") { push("arrival", e.content === `${me} arrives` ? "You walked into the house" : e.content, [e.id]); continue; }
       if (t === "toast-speech") {
