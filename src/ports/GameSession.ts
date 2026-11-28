@@ -2318,6 +2318,8 @@ export interface WhereaboutsView {
   roomNames?: Partial<Record<string, string>>;
   /** ORW-1150: the real beds in the player's room (a bedroom only): how many singles and how many doubles. Bed words in the narration come from this. */
   bedLayout?: { singles: number; doubles: number };
+  /** ORW-1190: true when the player holds a bed (the engine's bed owner row), so the claim check treats a reference to it as backed. Absent otherwise. */
+  playerBed?: boolean;
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
   roomLook?: string;
   /** ORW-654 / 0206: present only on the turn the player first steps into this room (a one-time card). */
