@@ -336,6 +336,12 @@ token_security_check() {
   fi
 }
 
+# ORW-1173: ORWELL_INTERNAL_TOKEN unset => no ops script can authenticate to /api/admin/ops/*. The check lives in deploy/ensure-internal-token.sh (never prints the value).
+internal_token_check() {
+  [[ -f "$ENV_FILE" && -r "${APP_DIR}/deploy/ensure-internal-token.sh" ]] || return 0
+  bash "${APP_DIR}/deploy/ensure-internal-token.sh" --check "$ENV_FILE" || true
+}
+
 # The HTTP status of the FE health probe ("000" = no answer at all). Any real status — even a
 # 401 from an auth-gated build — proves the front-end PROCESS is up and serving.
 fe_http_code() { curl -s -m 5 -o /dev/null -w '%{http_code}' "${FE_BASE}/api/orwell/health" 2>/dev/null; }
@@ -512,6 +518,7 @@ diagnose() {
   fi
   [[ -f "${APP_DIR}/dist/main.js" ]] && pass "build artifact: dist/main.js" || fail "build artifact missing — run: bash ${APP_DIR}/deploy/orwell-update.sh"
   update_deferred_check
+  internal_token_check
   token_security_check
   engine_http_ok       && pass "engine /health answers"        || fail "engine /health answers (${ENGINE_BASE}/health)"
   # DEPLOY-12 (B2): report which opt-in "living house" behavioral-fidelity layers are live, so an

@@ -203,7 +203,7 @@ One runtime flag ON then OFF, on a dev box that stands still, on a fresh account
       python3 scripts/live-run/live_check.py --base-url http://<dev host>:<port> --flag act_first_enabled --turns 6 [--seed N] [--max-spend 1.0] [--out DIR] [--keep-account]
     python3 scripts/live-run/live_check.py --dry-run        # offline self-test: a stub server, no network, no spend
 
-1. **Hold.** `POST /api/admin/ops/deploy-hold` writes `data/.deploy-hold` (`until=<epoch>`). `deploy/orwell-update.sh` honours it (the check is `update_deploy_hold_active` in `deploy/orwell-deploy-hold.sh`; the updater's one-line call lands after PR 3513 merges, so until then a hold is written but not yet obeyed): a held run prints "deploy HELD until ...", changes nothing and exits 0
+1. **Hold.** `POST /api/admin/ops/deploy-hold` writes `data/.deploy-hold` (`until=<epoch>`). `deploy/orwell-update.sh` honours it (the check is `update_deploy_hold_active` in `deploy/orwell-deploy-hold.sh`): a held run prints "deploy HELD until ...", changes nothing and exits 0
    (so the dev auto-deploy that restarts both services on every main merge cannot end the run). A hold is at most 240 minutes and is counted from the file's own mtime, so a forgotten hold ends by itself
    (`ORWELL_DEPLOY_HOLD_MAX_MINUTES`, 1..1440, lowers or raises that cap on the box). `--ignore-hold` (or `ORWELL_UPDATE_IGNORE_HOLD=1`), `--rollback` and `--set-token` skip it. The next update after the hold ends deploys the tip;
    to catch up at once run `bash orwell-update.sh`.
