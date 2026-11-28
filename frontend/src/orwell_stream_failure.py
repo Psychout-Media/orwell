@@ -50,8 +50,8 @@ def handle(user: Any, session: Any, exc: BaseException, *, rows_before: int | No
             from src import orwell_sync_ledger as _led
             if rows_before is None or (_led.recorded_count(user) + _led.unledgered_count(user)) == rows_before:
                 _led.record_unledgered_turn(user, session=session, reason="failed")
-    except Exception:  # pragma: no cover - defence in depth
-        pass
+    except Exception:  # failsoft-ok: stream-failure-accounting - the failure itself is already logged with its traceback by the caller; the row is telemetry
+        logger.warning("[orwell] stream-failure ledger row could not be written (session %s)", session)
     try:
         if _alert_due(session, time.monotonic()):
             from src import log_rings
@@ -59,8 +59,8 @@ def handle(user: Any, session: Any, exc: BaseException, *, rows_before: int | No
             log_rings.record_soft_failure("chat-stream:generator-failed", f"{type(exc).__name__} session={session}", user=user)
             logger.error("[orwell] ALERT chat_stream generator failed class=%s session=%s", type(exc).__name__, session)
             alerted = True
-    except Exception:  # pragma: no cover
-        pass
+    except Exception:  # failsoft-ok: stream-failure-alert - the ERROR log line above carries the class and session; the alert hook itself is down
+        logger.warning("[orwell] stream-failure alert could not be raised (session %s)", session)
     return alerted
 
 
