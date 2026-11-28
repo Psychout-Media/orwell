@@ -2303,7 +2303,12 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
                 // FORCE-reconciles this bubble to the persisted fallback — the agent loop saves a
                 // friendly message (not the raw "Error 503"), so the sender must end on the SAME
                 // persisted text a peer/reload shows (no two-windows-different-text on errors).
-                _streamHadError = true;
+                // ORW-1143: a server-side turn failure carries `retry` — keep the notice (no forced rebuild over it) and give the player the same user-controlled Retry as a dropped stream.
+                if (json.retry) {
+                  _renderStreamDropRetry(roundHolder || holder, streamSessionId, { label: 'Your message was received.' });
+                } else {
+                  _streamHadError = true;
+                }
                 break;
               }
               if (json.delta || json.type === 'tool_start' || json.type === 'tool_output' || json.type === 'tool_progress' || json.type === 'agent_step' || json.type === 'doc_stream_open' || json.type === 'doc_stream_delta' || json.type === 'research_progress' || json.type === 'keepalive') {

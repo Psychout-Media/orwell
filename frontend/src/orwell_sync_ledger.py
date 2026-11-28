@@ -245,6 +245,8 @@ _PARKED_BELTS: dict[str, dict[str, int]] = {}
 #: ORW-1014 metric gap (prod 2026-11-28: 26 player messages, 12 `driver=` lines): every player message is now accounted for. `_RECORDED` counts the rows `record_turn` wrote
 #: (the agent loop compares it across a turn to see a turn that never reached its row); `_CASTING_TURNS` counts the casting-interview messages (never game turns, never rowed).
 _RECORDED: dict[str, int] = {}
+#: ORW-1143: how many unledgered rows `record_unledgered_turn` wrote per user this process (a failed turn is accounted once, by whichever layer saw it first).
+_UNLEDGERED: dict[str, int] = {}
 _CASTING_TURNS: dict[str, int] = {}
 _PARKED_FORCED: dict[str, dict[str, dict[str, int]]] = {}
 
@@ -636,6 +638,15 @@ def recorded_count(user: str | None) -> int:
         return 0
 
 
+def unledgered_count(user: str | None) -> int:
+    """How many unledgered rows `record_unledgered_turn` wrote for the user this process. Never raises."""
+    try:
+        with _LOCK:
+            return _UNLEDGERED.get(_key(user), 0)
+    except Exception:  # pragma: no cover
+        return 0
+
+
 def record_unledgered_turn(user: str | None, *, session: Any = None, reason: str = "no-record") -> None:
     """ORW-1014 metric gap: a live-game turn that never reached `record_turn` (prod 2026-11-28 01:48Z: the act-first turn died with an UnboundLocalError, no `driver=` line, and its belts
     landed on the NEXT turn's row). Writes its own row so the turn is counted: `unledgered` names why (failed / closed / no-record), the buffered belts drain onto THIS row, and the
@@ -654,7 +665,10 @@ def record_unledgered_turn(user: str | None, *, session: Any = None, reason: str
         entry = _entry(session=session, turn_id=session, beat_seq_before=0, beat_seq_after=0, tools_called=tools, nudges_fired=0, auto_backfills=0,
                        desync_detected=False, stale_rejections=0, idempotency_hits=0, belts_fired=belts, forced_choice=forced)
         entry["unledgered"] = _clean_id(reason) or "no-record"
+        if entry["unledgered"] == "failed":
+            entry["drivenBy"] = "error"  # ORW-1143: a turn that died is its own driver, never read as narrator / belt / none
         with _LOCK:
+            _UNLEDGERED[k] = _UNLEDGERED.get(k, 0) + 1
             data = _load()
             bucket = data.get(k)
             bucket = bucket if isinstance(bucket, list) else []
@@ -826,7 +840,7 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
     with _LOCK:
         bucket = _load().get(k)
     split = {"narrator": 0, "belt": 0, "both": 0, "none": 0}
-    n = af = flow = unl = 0
+    n = af = flow = unl = err = 0
     if isinstance(bucket, list):
         for e in bucket:
             if isinstance(e, dict):
@@ -837,12 +851,14 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
                     flow += 1
                 if e.get("unledgered"):
                     unl += 1
+                if e.get("drivenBy") == "error":
+                    err += 1
                 split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
     nt = split["narrator"] + split["both"]
     bt = split["belt"] + split["both"]
     return {"turns": n, "narratorToolTurns": nt, "beltDrivenTurns": bt,
             "narratorOnly": split["narrator"], "beltOnly": split["belt"], "both": split["both"], "none": split["none"],
-            "actFirstTurns": af, "engineFlowTurns": flow, "unledgeredTurns": unl, "castingTurns": _CASTING_TURNS.get(k, 0), "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
+            "actFirstTurns": af, "engineFlowTurns": flow, "unledgeredTurns": unl, "errorTurns": err, "castingTurns": _CASTING_TURNS.get(k, 0), "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
 
 
 def _drain_pending_belts(user_key: str) -> dict[str, int]:

@@ -62,6 +62,7 @@ class _StubState:
     def __init__(self):
         self.lock = threading.Lock()
         self.script: list[dict] = []  # {"text": str, "delay": float}
+        self.forced_script: list[dict] = []  # ORW-1144: scripted answers to a NON-streaming forced tool-call round (act-first): {"tool_calls": [{"name": ..., "args": {...}}]}; empty = no tool call
         self.requests: list[dict] = []  # B13: every parsed request the stub saw (for pins that read what the narrator was handed)
 
     def pop(self):
@@ -100,10 +101,18 @@ class _StubHandler(BaseHTTPRequestHandler):
         stream = bool(req.get("stream"))
         entry = STUB.pop() if (stream and req.get("tools")) else None
         if not stream:
+            msg = {"role": "assistant", "content": "ok"}
+            offered = {((t or {}).get("function") or {}).get("name") for t in (req.get("tools") or [])}
+            if "noAction" in offered:  # ORW-1144: the act-first round (closed toolset with noAction); a scripted answer, else no tool call
+                with STUB.lock:
+                    fs = STUB.forced_script.pop(0) if STUB.forced_script else None
+                if fs and fs.get("tool_calls"):
+                    msg = {"role": "assistant", "content": None, "tool_calls": [
+                        {"id": f"call_af_{i}", "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc.get("args") or {})}} for i, tc in enumerate(fs["tool_calls"])]}
             body = json.dumps({
                 "id": "stub", "object": "chat.completion", "model": "stub-narrator",
                 "choices": [{"index": 0, "finish_reason": "stop",
-                             "message": {"role": "assistant", "content": "ok"}}],
+                             "message": msg}],
             }).encode()
             self.send_response(200)
             self.send_header("content-type", "application/json")
@@ -230,10 +239,11 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
         DATABASE_URL="sqlite:///" + os.path.join(tempfile.mkdtemp(prefix="orwell-m03-fe-"), "app.db"),
         ORWELL_DATA_DIR_FE=fe_data,
     )
+    fe_log = f"/tmp/m03-fe-{fe_port}.log"
     fe = subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app",
                            "--host", "127.0.0.1", "--port", str(fe_port)],
                           cwd=FRONTEND, env=fe_env,
-                          stdout=open(f"/tmp/m03-fe-{fe_port}.log", "w"), stderr=subprocess.STDOUT)
+                          stdout=open(fe_log, "w"), stderr=subprocess.STDOUT)
     fbase = f"http://127.0.0.1:{fe_port}"
     try:
         _wait_http(ebase + "/player/tools", engine, "engine", 60)
@@ -289,7 +299,7 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
                 raise RuntimeError(f"createCharacter failed: {r}")
 
         yield {"fe": fbase, "engine": ebase, "settings": sfile, "prior": prior_settings,
-               "endpoint_id": ep["id"]}
+               "endpoint_id": ep["id"], "fe_data": fe_data, "fe_log": fe_log}
     finally:
         # Restore the shared settings file — the stub endpoint/model must not leak into
         # later tests or dirty the checkout (the golden driver's shared-frontend/data lesson).
