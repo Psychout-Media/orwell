@@ -1986,7 +1986,8 @@ _RECAP_VOICED_DAY: Dict[str, int] = {}
 
 
 def _recap_key(owner, session_id) -> str:
-    return f"{_belt_key(owner)}|{session_id or ''}"
+    # Keyed by owner (the one game each owner has), not by chat session: a new chat session of the same game must not replay a voiced day, and the season reset (`_SEASON_PACING_STORES`) clears it by owner key.
+    return _belt_key(owner)
 
 
 def _recap_day_of(rec):
@@ -8767,7 +8768,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS, _ESC_INELIGIBLE_ROUNDS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD, _RECAP_VOICED_DAY,
 )
 
 
