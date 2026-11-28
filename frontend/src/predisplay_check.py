@@ -390,10 +390,10 @@ def player_room_conflict(text: str, whereabouts: Any, *, in_quote: bool = False)
         return None
 
 
-def find_conflicts(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[str]":
+def find_conflicts(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False, owner: Any = None) -> "list[str]":
     """The hard-fact conflicts in `text` against the Vault-free `getGameState` dict. Returns fact ids, e.g. ["clock-time"]. Fail-open: any hiccup => [].
     Derived from `conflict_details` (review of #2723) so a hard fact is defined in one place."""
-    return [c.fact for c in conflict_details(text, state, zero_clocks=zero_clocks, in_quote=in_quote)]
+    return [c.fact for c in conflict_details(text, state, zero_clocks=zero_clocks, in_quote=in_quote, owner=owner)]
 
 
 def correction_for(fact: str) -> str:
@@ -497,7 +497,16 @@ def stats_snapshot() -> "dict[str, Any]":
         "rewrites": dict(REWRITE_COUNTS),
         "turns": CHECK_STATS["turns"],
         "turnsWithConflict": CHECK_STATS["turnsWithConflict"],
+        "claimCommit": _claim_stats(),
     }
+
+
+def _claim_stats() -> "dict[str, Any]":
+    try:
+        from src import claim_commit
+        return claim_commit.stats()
+    except Exception:  # failsoft-ok: counter only
+        return {}
 
 
 async def _usable_state(owner: Any) -> "tuple[Any, str]":
@@ -547,9 +556,14 @@ async def check_and_count(text: str, owner: Any, *, in_quote: bool = False) -> "
             return []
         CHECK_STATS["checked"] += 1
         _tally(owner)["checked"] += 1
-        facts = find_conflicts(text, state, zero_clocks=zero_clocks_on(), in_quote=in_quote)
+        facts = find_conflicts(text, state, zero_clocks=zero_clocks_on(), in_quote=in_quote, owner=owner)
         if facts:
             record_conflicts(facts, owner)
+        try:  # ORW-1156: one ledger of every claim the narration made, backed or not
+            from src import claim_commit
+            claim_commit.tally_chunk(text, state, owner, in_quote=in_quote, external_facts=facts)
+        except Exception:  # failsoft-ok: counter only
+            pass
         return facts
     except Exception:  # failsoft-ok: counter only
         try:
@@ -606,7 +620,7 @@ def part_of_day_conflict(text: str, time_of_day: Any, early_morning: Any, *, in_
     return None
 
 
-def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[Conflict]":
+def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False, owner: Any = None) -> "list[Conflict]":
     """Like `find_conflicts` but each hit carries the name/phrase the correction needs. Same detection; fail-open."""
     try:
         if not text or not isinstance(state, dict):
@@ -633,6 +647,10 @@ def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool
         mine = player_room_conflict(text, state.get("whereabouts"), in_quote=in_quote)
         if mine:
             out.append(Conflict(FACT_PLAYER_ROOM, mine))
+        if owner is not None:  # ORW-1156: a claim of sleep, a bed, an alliance or a deal with no commit behind it (needs the turn's commits, so only with an owner)
+            from src import claim_commit
+            for fact, detail in claim_commit.claim_conflicts(text, state, owner, in_quote=in_quote):
+                out.append(Conflict(fact, detail))
         return out
     except Exception:  # failsoft-ok: orw408-detail-check (fail-open: an unreadable check never holds narration)
         return []
@@ -688,9 +706,14 @@ def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False, sk
         parts = _parts(text)
         acc = ""
         for i, part in enumerate(parts):
-            hits = [c for c in conflict_details(acc + part, state, zero_clocks=zc, in_quote=in_quote) if c.fact not in skip]
+            hits = [c for c in conflict_details(acc + part, state, zero_clocks=zc, in_quote=in_quote, owner=owner) if c.fact not in skip]
             if hits:
                 REWRITE_COUNTS[hits[0].fact] = REWRITE_COUNTS.get(hits[0].fact, 0) + 1
+                try:
+                    from src import claim_commit
+                    claim_commit.note(hits[0].fact, "regenerated", owner)
+                except Exception:  # failsoft-ok: counter only
+                    pass
                 logger.info("[predisplay-rewrite] withholding a sentence: %s", ",".join(h.fact for h in hits))
                 return RewriteSplit(acc, "".join(parts[i:]), part, tuple(hits))
             acc += part
@@ -709,8 +732,14 @@ def drop_conflicting_sentences(text: str, owner: Any, *, in_quote: bool = False,
             return text, []
         kept, dropped = "", []
         for part in _parts(text):
-            if any(c.fact not in skip for c in conflict_details(kept + part, state, zero_clocks=zc, in_quote=in_quote)):
+            if any(c.fact not in skip for c in conflict_details(kept + part, state, zero_clocks=zc, in_quote=in_quote, owner=owner)):
                 dropped.append(part)
+                try:
+                    from src import claim_commit
+                    for c in conflict_details(kept + part, state, zero_clocks=zc, in_quote=in_quote, owner=owner):
+                        claim_commit.note(c.fact, "dropped", owner)
+                except Exception:  # failsoft-ok: counter only
+                    pass
                 continue
             kept += part
         if dropped:
@@ -760,6 +789,9 @@ def _correction_line(c: Conflict) -> str:
         return f"{who} in the room with the player; no one else speaks or acts here."
     if c.fact == FACT_PLAYER_ROOM:
         return f"The player is in {c.detail}; do not move or place them anywhere else."
+    from src import claim_commit
+    if c.fact in claim_commit.FACTS:  # ORW-1156
+        return claim_commit.correction_for(c.fact, c.detail)
     return correction_for(c.fact)
 
 
