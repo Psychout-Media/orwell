@@ -12238,6 +12238,8 @@ async def _stream_agent_loop_impl(
                 # gate (`{disclosed:false}` when unearned) are the real gatekeepers, not these gates.
                 _last_user_for_confide = _extract_last_user_message(messages) or ""
                 _want_offer_answer = (_turn_offer_nudges < 1 and bool(_OFFER_ANSWER_RE.search(_last_user_for_confide)))
+                if "confide" in _tool_names:
+                    _turn_confide_nudges = max(_turn_confide_nudges, 1)  # ORW-1200: a confide that LANDED this turn (C3's plan commit, or the model's own) stands the belt and its ORW-1071 gate down
                 _want_confide = (_turn_confide_nudges < 1
                                  and bool(_CONFIDE_PRESS_RE.search(_last_user_for_confide)))
                 # 0093/0099: the player OUTED or TRADED a secret they already know but the model never
