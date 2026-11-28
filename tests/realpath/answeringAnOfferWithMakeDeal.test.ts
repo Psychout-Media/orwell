@@ -34,7 +34,8 @@ describe("a makeDeal to the houseguest who made the offer accepts it (played)", 
   }, 120_000); // a whole played season: past the 30 s default on a CI runner
 
   it("a deal with a houseguest who made no offer is still decided by their own consent (unchanged)", () => {
-    const f = firstSeedWhereSync((seed, sandbox) => offerStanding(seed, sandbox), { from: 1, to: 12, hint: [8, 12], sandbox: (s) => `ao930b-${s}`, what: "a houseguest's offer standing with the player" });
+    // ORW-995: hint 4, 10 (was 8, 12): the census-hometown cast moves the seeded draws; seed 8 has an offer standing but nobody refuses (0 of 14); seed 4 refuses 3 of 14, seed 10 refuses 2 of 14
+    const f = firstSeedWhereSync((seed, sandbox) => offerStanding(seed, sandbox), { from: 1, to: 12, hint: [4, 10], sandbox: (s) => `ao930b-${s}`, what: "a houseguest's offer standing with the player" });
     const g = f.at;
     const o = (g.s.getGameState() as { openDealOffer: { from: { id: string } } }).openDealOffer;
     const others = g.s.livingIds().filter((id) => id !== PLAYER && id !== o.from.id);
