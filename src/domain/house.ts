@@ -311,6 +311,8 @@ const ROOM_ALIASES: ReadonlyMap<string, Room> = new Map<string, Room>([
   ["washroom", "bathroom"],
   ["restroom", "bathroom"],
   ["toilet", "bathroom"],
+  ["shower", "bathroom"], // ORW-1180: "head to the shower" is a walk to the bathroom
+  ["showers", "bathroom"],
   ["storage-room", "storage-room"],
   ["storage", "storage-room"],
   ["pantry", "storage-room"],
