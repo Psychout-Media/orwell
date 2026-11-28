@@ -10510,6 +10510,19 @@ async def apply_game_framing(
             try:
                 mp = await orwell_engine.get_moment_prompt(game_state.get("moment"), user=user)
                 pre_prompt = (mp or {}).get("systemPrompt") or PRE_GAME_PROMPT
+                # ORW-1126 (Ryne's prod casting, 2026-11-28): the account photo carries over to a new season, but the NEW season's casting file never recorded it, so the CASTING STATUS still listed the
+                # photo as step one and the producer asked for a photo the player already had (and said "the photo slot is still open"). Record the carried-over photo on the engine's casting file
+                # first, then re-read the prompt, so the status and the on-file note agree. Only when the status still asks for it; fail-open.
+                try:
+                    _cast = (game_state.get("casting") or {}) if isinstance(game_state, dict) else {}
+                    _asks_photo = "NEXT STEP: their cast photo" in pre_prompt or "castPhoto" in (_cast.get("missing") or [])
+                    if _asks_photo and "castPhoto" not in (_cast.get("known") or {}) and _player_photo_on_file(user):
+                        await orwell_engine.update_casting({"castPhoto": "uploaded"}, user=user)
+                        _note_belt(user, "carried-photo-recorded")
+                        mp = await orwell_engine.get_moment_prompt(game_state.get("moment"), user=user)
+                        pre_prompt = (mp or {}).get("systemPrompt") or pre_prompt
+                except Exception as _cp_e:
+                    logger.warning("[orwell] carried cast photo not recorded for user=%s: %s", _gkey, _cp_e)
                 _stash_producer_name(user, mp)  # #1626: the casting producer byline for the client
             except Exception as e:
                 logger.warning("[orwell] interview moment-prompt fetch failed for user=%s: %s", _gkey, e)
@@ -11509,6 +11522,16 @@ async def _resolve_model_id(sess) -> Optional[str]:
     event loop, and every other player, once per chat turn."""
     return _normalize_model_id_from_cache(sess) or await asyncio.to_thread(
         normalize_model_id, sess.endpoint_url, sess.model)
+
+
+def _player_photo_on_file(user) -> bool:
+    """The player already has a cast photo: an uploaded or finalized headshot, or the account photo that survives a new-season scrub. Never raises."""
+    try:
+        from src import orwell_portraits
+        _intake = orwell_portraits.intake_status(user)
+        return bool(_intake.get("present") or _intake.get("finalized")) or bool(orwell_portraits.user_avatar_path(user))
+    except Exception:
+        return False
 
 
 async def build_chat_context(
