@@ -20,11 +20,11 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
     let hit: Talk | undefined;
     const at = await playUntil(seed, watchVoteTalk((s, t) => { if (wanted(s, t)) { hit = t; return true; } return false; }), { user: sandbox });
     return { at, talk: hit! };
-  }, { from: 1, to: 30, hint, sandbox: (s) => `wf-${s}`, what: "the vote talk the test needs" })).at;
+  }, { from: 1, to: 30, hint, sandbox: (s) => `wf-${s}`, what: "the vote talk the test needs (ORW-995 census cast)" })).at;
 
 describe("vote talk in a played season", () => {
   it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
-    const { at, talk } = await firstTalk([5, 1, 3], (_s, t) => t.told.some((c) => c.listener === PLAYER));
+    const { at, talk } = await firstTalk([8, 10], (_s, t) => t.told.some((c) => c.listener === PLAYER)); // ORW-995: hint 8, 10 (was 5, 1, 3); the census-hometown cast moves the seeded draws (seeds 1-20 probed one per process: 8, 10-14, 16, 17, 19, 20 reach it; 1-7, 9, 15, 18 do not)
     const toPlayer = talk.told.filter((c) => c.listener === PLAYER);
     for (const c of toPlayer) {
       const scene = at.engine.events.queryAll().find((e) => !e.hidden && e.type === "conversation" && e.witnessSet.includes(PLAYER) && e.witnessSet.includes(c.speaker) && /voted to keep/.test(String(e.content)));
