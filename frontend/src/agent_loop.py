@@ -3303,6 +3303,47 @@ def _player_signals_casting_ready(messages) -> bool:
     return bool(_CASTING_READY_RE.search(last) or _LULL_READY_RE.search(last))
 
 
+_S1B_WAIT_RE = re.compile(r"\b(wait|hold on|hang on|one (sec|second|moment|minute)|give me a (sec|second|moment|minute)|pause)\b", re.IGNORECASE)
+
+
+def _s1b_message_allows_force(messages) -> bool:
+    """ORW-1166: a forced advanceGame never answers a conversational or social message. Allowed: no player
+    text, a hidden production or beat cue, an ask to move on or wait, or a bare acknowledgement (three
+    words or fewer, no question). Anything else is the player talking, and the turn answers them."""
+    last = (_extract_last_user_message(messages) or "").strip()
+    if not last or _is_production_cue(last) or _is_beat_cue(last):
+        return True
+    if _LULL_READY_RE.search(last) or _CASTING_READY_RE.search(last) or _S1B_WAIT_RE.search(last):
+        return True
+    return len(last.split()) <= 3 and "?" not in last
+
+
+async def _s1b_force_allowed(owner, force_owner, messages):
+    """ORW-1166: may the armed S1b escalation force advanceGame now? Needs a real stall: the beat still the
+    one it was armed on, AND the engine names a requiredLever or a due event; and the player's message is
+    not social. Returns (allowed, reason)."""
+    from routes import chat_helpers as _ch
+    if not _s1b_message_allows_force(messages):
+        return False, "social-message"
+    info = _ch.advance_escalation_info(owner) or {}
+    armed_seq = info.get("beat_seq")
+    now_seq = _ch.last_beat_seq(owner)
+    if isinstance(armed_seq, int) and isinstance(now_seq, int) and now_seq != armed_seq:
+        return False, "beat-moved-since-arm"
+    lever = _ch._LAST_FRAMED_REQUIRED_LEVER.get(force_owner)
+    if lever:
+        return True, "required-lever"
+    due = False
+    try:
+        from src import orwell_engine as _oe
+        from routes.briefing import build_briefing
+        gs = await _oe.get_game_state(owner)
+        due = bool(isinstance(gs, dict) and build_briefing(gs).due)
+    except Exception:
+        due = False
+    return (True, "due-event") if due else (False, "no-lever-or-due-event")
+
+
 # A hidden PRODUCTION CUE is engine/FE-authored text injected as a user message (e.g. the post-photo
 # "continue the casting interview" auto-cue from orwellOnboarding.js via sendHiddenCue) — NOT the
 # player speaking. It must never read as a player "lull" / "ready" signal, or it would silently march
@@ -5436,7 +5477,7 @@ async def _faith_guard_down_p0(owner, narration) -> bool:
                 logger.debug("[orwell] faith-guard-down reground-check skipped: %s", _chk_err)
         _retained = _queued or _already
         try:
-            _ch_p0._arm_advance_escalation(owner)
+            _ch_p0._arm_advance_escalation(owner, "faith-guard-down")
         except Exception as _arm_err:
             logger.debug("[orwell] faith-guard-down arm-escalation skipped: %s", _arm_err)
         if _retained:
@@ -10650,12 +10691,16 @@ async def _stream_agent_loop_impl(
                             isinstance(_esc_status, dict)
                             and isinstance(_esc_status.get("pending"), dict)
                             and (_esc_status["pending"].get("kind") or "").strip())
-                        if not _esc_pending:
+                        _esc_ok, _esc_why = (False, "pending") if _esc_pending else await _s1b_force_allowed(owner, _force_owner, messages)
+                        if not _esc_pending and not _esc_ok:
+                            logger.info("[orwell] S1b force withheld (%s) round=%s user=%s", _esc_why, round_num, _force_owner)
+                            _ch_esc.clear_advance_escalation(owner)
+                        if not _esc_pending and _esc_ok:
                             _forced_tool_choice = {"type": "function",
                                                    "function": {"name": "advanceGame"}}
                             _forced_belt_tool = "advanceGame"
                             logger.info("[orwell] S1b forcing advanceGame (escalation armed) "
-                                        f"round={round_num} user={_force_owner}")
+                                        f"round={round_num} user={_force_owner} arm={_ch_esc.advance_escalation_info(owner)} gate={_esc_why}")
                             # Finding 6: CONSUME the escalation ONLY now that the forced advanceGame call
                             # is actually SELECTED — never before. Clearing it unconditionally (a
                             # rejecter model, no wire advanceGame, or an open player pending) discarded
@@ -12645,7 +12690,7 @@ async def _stream_agent_loop_impl(
                                         if not _ch3._is_stale_beat_error(_stale_e2):
                                             raise
                                         await _ch3._handle_stale_beat(owner, _stale_e2)
-                                        _ch3._arm_advance_escalation(owner)  # S1b next-round force
+                                        _ch3._arm_advance_escalation(owner, "reconciled-board-moved-twice")  # S1b next-round force
                                         try:
                                             from src import log_rings as _lr_adv2
                                             _lr_adv2.record_soft_failure(
@@ -14294,10 +14339,11 @@ async def _stream_agent_loop_impl(
                         corrected="forced-advance-armed", user=owner)
                 except Exception as _lr_su_err:
                     logger.debug(f"[orwell] stall-unconverted soft-failure log skipped: {_lr_su_err}")
-                _ch_esc2._arm_advance_escalation(owner)
+                _ch_esc2._arm_advance_escalation(owner, "stall-nudges-unconverted")
             elif _s1_have_baseline and not _s1_beat_moved and _s1_desync:
-                # S1b — a desync flagged with no progression is the escalate signal: arm the force.
-                _ch_esc2._arm_advance_escalation(owner)
+                # ORW-1166: a desync re-ground ALONE is not a stall (it fired a forced advanceGame on a
+                # social message). It no longer arms the force; a real stall signal above still does.
+                logger.info("[orwell] S1b not armed: desync re-ground without a stall signal user=%s", owner)
             elif _s1_beat_moved:
                 # Real progression this turn — clear any armed escalation so it never wedges forcing on.
                 _ch_esc2.clear_advance_escalation(owner)

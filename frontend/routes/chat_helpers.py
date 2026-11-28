@@ -2843,9 +2843,18 @@ def deferred_fold_count(user) -> int:
 _ADVANCE_ESCALATION: dict = {}
 
 
-def _arm_advance_escalation(user) -> None:
-    """Arm the lull-independent forced-advance escalation for `user` (S1b). Idempotent."""
-    _ADVANCE_ESCALATION[_beat_seq_key(user)] = True
+def _arm_advance_escalation(user, reason: str = "unspecified") -> None:
+    """Arm the lull-independent forced-advance escalation for `user` (S1b). Idempotent.
+    ORW-1166: the arming reason and the beatSeq at arm time are recorded (and logged) on every arm; the
+    force gate reads them to confirm the beat is still the one that stalled."""
+    _ADVANCE_ESCALATION[_beat_seq_key(user)] = {"reason": str(reason), "beat_seq": last_beat_seq(user)}
+    logger.info("[orwell] S1b escalation armed reason=%s beat_seq=%s", reason, last_beat_seq(user))
+
+
+def advance_escalation_info(user):
+    """ORW-1166: the {reason, beat_seq} record of the armed S1b escalation, or None."""
+    v = _ADVANCE_ESCALATION.get(_beat_seq_key(user))
+    return v if isinstance(v, dict) else None
 
 
 def advance_escalation_armed(user) -> bool:
@@ -9727,7 +9736,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 if not _is_stale_beat_error(_adv_e2):
                     raise
                 await _handle_stale_beat(user, _adv_e2)
-                _arm_advance_escalation(user)  # S1b — the beat is still un-advanced; force next round
+                _arm_advance_escalation(user, "double-stale-409")  # S1b — the beat is still un-advanced; force next round
                 try:
                     from src import log_rings as _lr_adv
                     _lr_adv.record_soft_failure(
