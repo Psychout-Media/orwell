@@ -1252,8 +1252,17 @@ if [[ -f "$ENV_FILE" && -r "$ENV_DEFAULTS_LIB" ]]; then
     printf 'ORWELL_ENGINE_ADMIN_TOKEN=%s\n' "$_admin_secret" >> "$RECON_TMP"
     recon_added="${recon_added} ORWELL_ENGINE_ADMIN_TOKEN(minted)"
   fi
+  # 4. ORW-1173: ORWELL_INTERNAL_TOKEN — MINTED once when absent or empty, never overwritten, never printed.
+  #    Unset, the front-end falls back to a random per-process token, so no ops script could ever call
+  #    the admin ops routes (/api/admin/ops/*).
+  if ! grep -Eqs '^ORWELL_INTERNAL_TOKEN=.' "$ENV_FILE"; then
+    _internal_secret="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    printf 'ORWELL_INTERNAL_TOKEN=%s\n' "$_internal_secret" >> "$RECON_TMP"
+    unset _internal_secret
+    recon_added="${recon_added} ORWELL_INTERNAL_TOKEN(minted)"
+  fi
   if [[ -n "$recon_added" ]]; then
-    chmod --reference="$ENV_FILE" "$RECON_TMP" 2>/dev/null || chmod 600 "$RECON_TMP"
+    chmod --reference="$ENV_FILE" 2>/dev/null || chmod 600 "$RECON_TMP"
     mv "$RECON_TMP" "$ENV_FILE"
     echo "==> reconciled data/.env — added keys the install predated:${recon_added}"
     case " $recon_added " in
