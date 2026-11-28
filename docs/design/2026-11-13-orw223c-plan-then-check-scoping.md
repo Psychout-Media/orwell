@@ -200,13 +200,13 @@ Per game turn, by message index (belts that count under `ENGINE_CHANGE_BELT_PREF
 
 * `auto-record-scene` fired on 11 of 12 rowed turns. It is the belt that makes 10 of the 12 turns `belt`: it is a JSON extraction from the prose after the reply (`_auto_record_scene`), standing in for the narrator's `recordInteraction`. A player cue does not trigger it: it is the narrator's omission, and the player's act is open-set speech.
 * `auto-move-npc` fired on 6 of 12 turns (18 NPC moves): after-the-prose extraction of NPC movement, ADR 0009 ruling 1 (NPC movement is narrated and the engine records it).
-* `premiere-arrival-pre-release` fired on 6 of 12 turns, `premiere-arrival-postreply-deferred` once, `ceremony-unvoiced-reground` on 5, `desync-reground-voiced` on 6, `presence-wall` once, `companion-reseat` twice, `advance-stall-nudge` once. NONE of these is in `ENGINE_CHANGE_BELT_PREFIXES`: they were never counted as belt-driven.
+* `premiere-arrival-pre-release` fired on 6 of 12 turns, the post-reply premiere-arrival belt once, `ceremony-unvoiced-reground` on 5, `desync-reground-voiced` on 6, `presence-wall` once, `companion-reseat` twice, `advance-stall-nudge` once. NONE of these is in `ENGINE_CHANGE_BELT_PREFIXES`: they were never counted as belt-driven.
 
 So the premise "mostly premiere-arrival-pre-release" is about the belts that FIRED, not about the belts that made the turn `belt`. The driver label was already right about the premiere.
 
 ## 3. The written definition of engine-driven (old and new counts)
 
-Scheduled engine flow = a commit the show's own staged schedule makes with no player act and no narrator omission behind it: the premiere entrance and toast arrivals released by the engine before the reply, or deferred to the next turn's release. Names: prefix `premiere-arrival-` (`SCHEDULED_FLOW_BELT_PREFIXES`). It is reported as its own count (`engineFlowTurns`) and is not a narrator failure. Nothing that stands in for a player act or a narrator call (`auto-*`, `forced-advance*`, `player-move-intent`, the direct belts) is ever scheduled flow; advisory belts (re-grounds, nudges, walls, steers) stay advisory.
+Scheduled engine flow = a commit the show's own staged schedule makes with no player act and no narrator omission behind it: the premiere entrance and toast arrivals released by the engine before the reply, or held over to the next turn's release. Names: prefix `premiere-arrival-` (`SCHEDULED_FLOW_BELT_PREFIXES`). It is reported as its own count (`engineFlowTurns`) and is not a narrator failure. Nothing that stands in for a player act or a narrator call (`auto-*`, `forced-advance*`, `player-move-intent`, the direct belts) is ever scheduled flow; advisory belts (re-grounds, nudges, walls, steers) stay advisory.
 
 Counts on the 12 rowed prod turns (13 with the crashed one):
 

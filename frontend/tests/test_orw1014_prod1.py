@@ -36,7 +36,7 @@ def test_talk_with_nothing_to_ground_never_spends_a_call(text):
     assert calls == [] and d["outcome"] in ("skipped:ungrounded", "skipped:no-cue")
 
 
-@pytest.mark.parametrize("text", ["I head to the kitchen", "let's look for Levi", "going to bedroom A", "I go outside to the yard", "I claim a bed in this room"])
+@pytest.mark.parametrize("text", ["I head to the kitchen", "let's look for Levi", "going to bedroom A", "I go outside to the yard"])
 def test_a_message_that_grounds_a_room_or_a_person_still_gets_the_call(text):
     assert af.can_commit_nothing(af.clean_text(text), ROOMS, CTX) is False
 
@@ -123,3 +123,8 @@ def test_scheduled_flow_is_reported_but_never_changes_the_driver(led):
     assert led.classify_driver([], belts) == "none"
     assert led.classify_driver([], dict(belts, **{"auto-record-scene": 1})) == "belt"  # a real belt next to it still counts
     assert led.scheduled_flow_belts({"auto-record-scene": 1, "forced-advance:stall": 1}) == []  # nothing that replaces a player act or a narrator call is ever scheduled flow
+
+
+def test_a_bed_claim_in_the_room_the_player_stands_in_keeps_the_call_only_in_a_bedroom():
+    assert af.can_commit_nothing("I claim a bed in this room", ROOMS, dict(CTX, here="bedroom-b")) is False
+    assert af.can_commit_nothing("I claim a bed in this room", ROOMS, dict(CTX, here="living-room")) is True  # a move there is already-there, a bed needs a bedroom
