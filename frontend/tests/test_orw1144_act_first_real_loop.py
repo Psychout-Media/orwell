@@ -143,6 +143,4 @@ def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_a
             problems.append(f"{name}: the narrator's own tool call is missing from the ledger row")
         if "chat_stream generator failed" in new:
             problems.append(f"{name}: the chat_stream generator failed")
-    if problems:
-        print("DEBUG", [(r.get("beltsFired"), r.get("toolsCalled"), r.get("drivenBy")) for r in _rows(stack_af)], [l[-200:] for l in _log(stack_af).splitlines() if "act-first" in l or "forcing" in l or "[orwell]" in l and "round" in l][-40:])
     assert not problems, "; ".join(problems)
