@@ -26,9 +26,19 @@ pytestmark = pytest.mark.browser
 def stack_af():
     prior = os.environ.get("ORWELL_ACT_FIRST")
     os.environ["ORWELL_ACT_FIRST"] = "1"  # the FE subprocess inherits it
+    # The auth store is the checkout's own frontend/data/auth.json (no env override): set any existing one aside so this stack starts unconfigured, and put it back after.
+    auth_json = pathlib.Path(m03.FRONTEND) / "data" / "auth.json"
+    aside = auth_json.with_name("auth.json.orw1144-aside")
+    had = auth_json.exists()
+    if had:
+        auth_json.replace(aside)
     try:
         yield from m03._boot_stack(auth_user="orw1144")  # a real user: an anonymous stack has no owner, so the sync ledger would record nothing
     finally:
+        if auth_json.exists():
+            auth_json.unlink()
+        if had:
+            aside.replace(auth_json)
         if prior is None:
             os.environ.pop("ORWELL_ACT_FIRST", None)
         else:
