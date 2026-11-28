@@ -27,9 +27,14 @@ def split_parts(text: str) -> List[str]:
 
 
 def _align(pre: str, post: str) -> Optional[List[tuple]]:
-    """[(part, kept_text_or_None)] for the sentences of `pre`, matched in order to what `post` kept; None when `post` is not made of `pre`'s parts (a guard rewrote text)."""
+    """[(part, kept_text_or_None)] for the sentences of `pre`, matched in order to what `post` kept.
+
+    ORW-1028: a guard that REWRITES a sentence (confession deflection, role-claim strip, the player-voice guard) leaves text in `post` that is no part of `pre`. That used to fail the whole
+    alignment, so the chunk was read on its own and a head cut in the same chunk was never seen (the headless lines reached the player). Now the text a rewrite put in is carried as
+    its own kept part, and the sentences matched around it stay aligned. Returns None only when nothing of `pre` can be found in a non-empty `post`."""
     pos = 0
     out = []
+    matched = 0
     for bp in split_parts(pre):
         rest = post[pos:]
         hit = None
@@ -38,20 +43,40 @@ def _align(pre: str, post: str) -> Optional[List[tuple]]:
             if cand and rest.startswith(cand):
                 hit = cand
                 break
+        gap = ""
+        if hit is None and len(bp.strip()) >= 12:
+            # not at the cursor: the text up to it may be a sentence a guard rewrote (carried as its own kept part)
+            idx = rest.find(bp)
+            if idx > 0:
+                gap, hit = rest[:idx], bp
         if hit is not None:
+            gparts = split_parts(gap)
+            run = []  # the unmatched parts right before this one are what the rewrite replaced: the rewritten text takes their place, in order
+            while len(run) < len(gparts) and len(out) > len(run) and out[len(out) - 1 - len(run)][1] is None:
+                run.append(len(out) - 1 - len(run))
+            for slot, g in zip(reversed(run), gparts[:len(run)]):
+                out[slot] = (out[slot][0], g)
+            for g in gparts[len(run):]:
+                out.append((g, g))
             out.append((bp, hit))
-            pos += len(hit)
+            pos += len(gap) + len(hit)
+            matched += 1
             continue
         out.append((bp, None))
-    if post[pos:].strip():
-        return None
+    tail = post[pos:]
+    if tail.strip():
+        if not matched and (pre or "").strip():
+            return None
+        for g in split_parts(tail):  # text a guard put in after the last matched sentence
+            out.append((g, g))
     return out
 
 
 class TurnSeam:
     """Per-round state for the seam. `feed(pre, post)` returns the text to emit for one chunk; `finish()` returns what closes the round (a quote still open)."""
 
-    def __init__(self):
+    def __init__(self, strict_residue: bool = False):
+        self.strict_residue = strict_residue  # ORW-1028: a whole stored text: a later paragraph that starts with a blank is a cut head's body and goes whole, quote or not (the live seam saw the cut; the stored text did not)
         self.head_seen = False      # some part of the current paragraph was processed
         self.tagged = False         # the current paragraph's head carries a speaker tag
         self.drop_turn = False      # the rest of the current paragraph is dropped (its head was cut)
@@ -114,6 +139,8 @@ class TurnSeam:
         if at_head:
             self.head_seen = True
             self.tagged = bool(TAG_RE.match(body.lstrip()))
+            if kept is not None and TAG_RE.match(body.lstrip()) and not TAG_RE.search(kept):
+                kept = None  # ORW-1028: a guard rewrote the head and the tag went with it: same as a cut head, the whole turn goes
             if kept is None:
                 if TAG_RE.search(body):
                     self.drop_turn = True  # the head that carried the tag was cut: the whole turn goes
@@ -132,6 +159,10 @@ class TurnSeam:
         lead_stripped = text.lstrip(" \t")
         if not self.para_out and (self.residue or self.cut_head):
             text = lead_stripped  # the blank a cut sentence leaves at a line start
+        if self.residue and self.strict_residue and self.emitted_any and not TAG_RE.search(lead_stripped):
+            self.drop_turn = True  # the body of a head that was cut before this text was read
+            self._cut(kept)
+            return
         if self.residue and re.search(r'["\u201c\u201d]', lead_stripped) and not TAG_RE.search(lead_stripped):
             self.drop_turn = True  # a quote with no speaker behind a head that was cut before it reached us
             self._cut(kept)
@@ -227,7 +258,7 @@ def wellformed(text: str) -> str:
     """The seam over one whole text (a stored reply, an offline replay): no residue lines, no speaker-less quote lines, balanced quote marks."""
     if not text:
         return text
-    seam = TurnSeam()
+    seam = TurnSeam(strict_residue=True)
     return seam.feed(text, text) + seam.finish()
 
 

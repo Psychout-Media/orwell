@@ -35,6 +35,9 @@ BEDROOMS = ("bedroom-a", "bedroom-b", "bedroom-c")
 SLOT_TOOLS = ("moveTo", "claimBed", "search")  # committed by the engine at the resolvePlayerMove slot, before the moment prompt is built
 LOOP_TOOLS = ("turnIn", "advance", "submitDecision")  # committed by the agent loop (they go through the tool dispatcher)
 KINDS = ("moveTo", "claimBed", "turnIn", "advance", "submitDecision", "search")
+# ORW-1135: the most legs one act-first search walks in a single message. docs/design/2026-11-13-orw223c-plan-then-check-scoping.md sets no fixed turn limit ("the player can stop or redirect at any point")
+# and quotes Kevin's own picture of a search as "this room this room this room", so the cap is that picture: three rooms, then the walk ends 'stopped' where the player stands and the next message goes on.
+SEARCH_MAX_LEGS = 3
 
 
 def enabled() -> bool:
@@ -63,7 +66,7 @@ _CUE = re.compile(
     r"\b(go|going|goes|went|gone|head|heading|walk|walking|run|running|step|stepping|move|moving|enter|entering|leave|leaving|left|wander|wandering|stroll|strolling|"
     r"slip|slipping|duck|ducking|retreat|retreating|off to|over to|back to|into|out to|lets|let's|let us|make my way|me to|take me|lead me|bring me|show me|"
     r"get out|come|follow|bed|bunk|sleep|asleep|nap|rest|turn in|night|continue|next|proceed|carry on|keep going|on with|move on|hang|wait|chill|"
-    r"search|look for|find|seek|hunt|check|upstairs|downstairs|outside|inside|room|rooms|bedrooms|bunkroom|bunkrooms|kitchen|bathroom|backyard|yard|lounge|hallway|landing|diary|"
+    r"search|look for|find|seek|hunt|locate|track down|where is|where's|where are|where did|check|upstairs|downstairs|outside|inside|room|rooms|bedrooms|bunkroom|bunkrooms|kitchen|bathroom|backyard|yard|lounge|hallway|landing|diary|"
     r"compete|win|throw|safe|deal|accept|decline|agree|yes|no|yeah|nope|ok|okay|sure|pass|refuse)\b", re.I)
 
 _ALIASES = {
@@ -290,7 +293,7 @@ def toolset(rooms, ctx: dict) -> list:
         t.append(fn("claimBed", "The player takes a bed or bunk now, in the bedroom the message names. Not a question about beds, not a swap request, not a plan.",
                     {"room": {"type": "string", "enum": [r for r in rooms if r in BEDROOMS] or list(BEDROOMS)}, "kind": {"type": "string", "enum": ["single", "double", "any"]}}, ["room"]))
     if o["search"]:
-        t.append(fn("search", "The player sets out to look for a houseguest, or asks where one is, by name. Not small talk about a person.", {"who": {"type": "string"}}, ["who"]))
+        t.append(fn("search", "The player gives an explicit order to look for a houseguest by name, or asks outright where one is. A question about where a houseguest sleeps, whose bed is whose, or what they think is never a search: noAction.", {"who": {"type": "string"}}, ["who"]))
     if o["turnIn"]:
         t.append(fn("turnIn", "The player goes to sleep for the night now. A sleep cannot be undone: any doubt is noAction."))
     if o["advance"]:
@@ -335,6 +338,37 @@ def build_messages(text: str, rooms, *, fence: str, room_note: str = "", here: s
     ]
 
 
+# ── ORW-1135: a search is an ORDER to look for someone (or a where-is request), never a question about someone ─────────────
+_SV = r"(?:look(?:ing)?\s+for|search(?:ing)?\s+for|find(?!\s+out)|seek|hunt(?:ing)?\s+for|track(?:ing)?\s+down|locate)"
+_INTRO = (r"(?:i|i'll|i\u2019ll|i'm|i\u2019m|i\s+am|i\s+will|i\s+want\s+to|i\s+wanna|i\s+need\s+to|i\s+have\s+to|i\s+gotta|i'd\s+like\s+to|i\s+would\s+like\s+to|let\s+me|let's|let\u2019s|lets|we\s+should|we\s+need\s+to|can\s+we|could\s+we|"
+          r"can\s+you|could\s+you|please|go|now|ok(?:ay)?|ok,|so|time\s+to)")
+_ORDER_RE = re.compile(r"(?:^|[,;:]\s*)(?:(?:" + _INTRO + r")\s+){0,3}(?:(?:going|gonna|go|head|heading|set|setting|walk|walking|run|running|try|trying|start|starting|off|out)\s+(?:to\s+|and\s+)?){0,2}" + _SV + r"\b", re.I)
+_ORDER_NEG = re.compile(r"\b(?:did|didn't|didn\u2019t|don't|don\u2019t|do\s+not|doesn't|does\s+not|haven't|hasn't|can't|cannot|couldn't|never|not|wonder|whether|if|why|how)\b", re.I)
+_WHERE_RE = re.compile(r"\bwhere(?:'s|\u2019s|\s+is|\s+are|\s+did|\s+has)\b", re.I)
+_WHERE_ASK_OTHERS = re.compile(r"\b(?:do|does|did|would|could|can|will|has|have)\s+(?:you|anyone|anybody|someone|somebody|any\s+of\s+you)\b|\b(?:know|tell\s+me|say|seen|saw)\b", re.I)
+_BED_QUESTION = re.compile(r"\b(?:sleep\w*|slept|bed|beds|bunk\w*|snor\w+|nap\w*|roommate\w*|share\w*|stay(?:s|ing)?|staying)\b", re.I)
+
+
+def is_search_order(text: str, who: str) -> bool:
+    """True when the player's words ORDER a search for `who` (find / look for / search for / track down X, or a plain where-is X request). A question about the person (where they sleep, whose bed,
+    what they think, whether they are here, did you find them) is not. Quoted speech is not read. Deterministic; a doubt is False (a wrong walk costs the player the room they stand in)."""
+    low = strip_quotes(text or "").lower().replace("\u2019", "'")
+    first = (who or "").split()[0].lower() if (who or "").split() else ""
+    if not first:
+        return False
+    for sent in re.split(r"(?<=[.!?])\s+|\n+", low):
+        if not re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", sent):
+            continue
+        m = _ORDER_RE.search(sent)
+        if m and not _ORDER_NEG.search(sent[:m.start()]) and not _ORDER_NEG.search(sent[m.start():m.end()]):
+            if not re.match(r"^\s*(?:do|does|did|is|are|was|were|has|have|would|will)\b", sent):  # a yes/no question about them, not an order
+                return True
+        w = _WHERE_RE.search(sent)
+        if w and not _WHERE_ASK_OTHERS.search(sent[:w.start()]) and not _BED_QUESTION.search(sent[w.end():]) and not _WHERE_ASK_OTHERS.search(sent):
+            return True
+    return False
+
+
 # ── validation of what the model answered ─────────────────────────────────────────────────────
 def validate_calls(calls, *, text: str, rooms, ctx: dict) -> list:
     """[(tool, args)] to commit, in order; [] means commit nothing (noAction, any doubt, any invalid call, a tool not offered this turn)."""
@@ -355,6 +389,8 @@ def validate_calls(calls, *, text: str, rooms, ctx: dict) -> list:
             match = next((x for x in people if who and (who.lower() == x.lower() or who.lower() == x.split()[0].lower())), None)
             if not o["search"] or not match or not re.search(r"(?<![\w'])" + re.escape(match.split()[0].lower()) + r"(?![\w'])", strip_quotes(text).lower()):
                 return []  # a search names a houseguest who is in the house AND in the player's own words
+            if not is_search_order(text, match):
+                continue  # ORW-1135: and the words are an order to look for them (or a where-is), not a question about them: this call is dropped, the move or bed call beside it still stands
             out.append(("search", {"who": match}))
         elif name == "moveTo":
             route = args.get("rooms") if isinstance(args.get("rooms"), list) else [args.get("room")]
@@ -433,7 +469,7 @@ def blocked_precondition(act: tuple, blocked: list) -> Optional[str]:
 # Prod 2026-11-28: "I will grab a bed in Barrel" / "Lets check out barrel" / "Lets go look at the different bedrooms" all ended noAction, the story moved the player and the engine did not.
 # The model is asked first; when it says noAction (or the message never reaches it), these plain first-person patterns, which hold every veto that applies, still commit the move or the bed.
 _P1 = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|now|and|but|hey|also)[\s,.!]+)*(?:i\b|im\b|i['\u2019]m|i['\u2019]ll|ill\b|let['\u2019]?s|lets|let us|we\b|me\b|my\b|go\b|going\b|head|heading|walk|grab|take|pick|choose|chose|claim|check|time to|\*)", re.I)
-_PLAIN_BLOCK = re.compile(r"\b(?:should i|can i|do i|may i|am i|what if|is there|are there|where(?:'s| is)|dana|jake)\b|\b(?:don'?t|do not|won'?t|not going|never|refuse|instead of|rather than|can'?t|cannot)\b", re.I)
+_PLAIN_BLOCK = re.compile(r"\b(?:should i|can i|do i|may i|am i|what if|is there|are there|where(?:'s| is)|dana|jake)\b|\b(?:don'?t|do not|won'?t|not going|never|refuse|instead of|rather than|rather not|can'?t|cannot|wait|but|except|unless)\b|\bi['\u2019]d\b", re.I)  # ORW-1135 gate: a hedge, a self-correction and a conditional are no plain words
 _WHEN = re.compile(r"\b(?:later|after|before|tomorrow|tonight|soon|eventually|once|until|when|if|at \d|\d ?(?:am|pm)|someday|plan to|about to|thinking of|next (?:week|day|time)|in an hour|could|should|might|wish|hope)\b", re.I)
 _GO_VERB = re.compile(r"\b(?:go|going|head|heading|walk|walking|look|check|see)\b", re.I)
 _BED_INTENT = re.compile(r"\b(?:grab|take|pick|choose|chose|claim|select|get|find|dibs on|sleep in|settle (?:in|on))\b[^.!?]{0,25}?\b(?:bed|beds|bunk|bunks)\b", re.I)
@@ -498,7 +534,7 @@ def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
         low = t.lower()
         for nm in ctx.get("people") or []:
             first = str(nm).split()[0].lower() if str(nm).split() else ""
-            if first and re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", low):
+            if first and re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", low) and is_search_order(t, str(nm)):  # ORW-1135: the validator rejects a question about them, so the call is not spent
                 return False
     if o["turnIn"] and _SLEEP_CUE.search(t):
         return False

@@ -566,6 +566,9 @@ def clear_social_runway(user) -> None:
     _SCHEDULE_STEER.pop(key, None)
     _SCHEDULE_ARM.pop(key, None)
     _TURN_SCHEDULE_ARM.pop(key, None)
+    _VOICE_LOG.pop(key, None)  # ORW-1133: a reset forgets who introduced themselves and what they said
+    _VOICE_INTRODUCED.pop(key, None)
+    _PREMIERE_CIRCLE_CLOSED.discard(key)
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
     _PREMIERE_CLOCK_HOLD.pop(key, None)
@@ -1157,6 +1160,7 @@ def note_premiere_turn(user, game_state) -> None:
         stage = _entrance_stage_of(game_state) if phase == "premiere" else None
         if stage in ("entrances", "toast", "tour"):
             _PREMIERE_ENTRANCE_STAGE[key] = stage
+            _PREMIERE_CIRCLE_CLOSED.discard(key)  # ORW-1133: a circle in progress is not closed
             _PREMIERE_MSGS.pop(key, None)
             # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest
             # (the 2026-11-12 live run: in 7 of 10 logged arrival rounds the same-round reply never named them). Remember the arrival with the existing committed-beat voicing check: if the reply names
@@ -1211,6 +1215,8 @@ def note_premiere_turn(user, game_state) -> None:
         except Exception as _fs_exc:
             _failsoft_note("chat_helpers:note_premiere_turn:3", _fs_exc)
             pass
+        if stage == "done" or (phase and phase != "premiere"):
+            _PREMIERE_CIRCLE_CLOSED.add(key)  # ORW-1133: the champagne circle is over: a later self-introduction is a repeat
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
             # phase=premiere for 25+ messages (the stall-nudge was suppressed) while the narrator kept the house "in the morning" - and the clock-driven 48-message Day-1 morning
@@ -4301,6 +4307,131 @@ def note_eviction_result_for_voicing(user, adv) -> None:
         pass
 
 
+# ORW-1133 (Ryne, 2026-11-28 prod game, "Valerie just introduced herself to me for like the 3rd time ... how people are responding feels so unnatural"): nothing checked what a houseguest said
+# against what the SAME houseguest already said. After the champagne circle closed, houseguests recited name / hometown / job again and repeated their own lines word for word. This is the deterministic
+# check: it reads the tagged dialogue of every reply, remembers who has introduced themselves and what each speaker said in the last few replies, and when a reply re-introduces someone (circle closed,
+# or already introduced) or repeats one of their own clauses, it counts a belt and re-grounds the next turn with the exact offence. Never rewrites the reply; never raises.
+_VOICE_LOG: dict = {}           # runway key -> the last _VOICE_LOG_REPLIES replies' {speaker full name: [normalised clauses]}
+_VOICE_INTRODUCED: dict = {}    # runway key -> full names a reply has shown introducing themselves
+_PREMIERE_CIRCLE_CLOSED: set = set()  # runway keys whose champagne circle is over (entrance stage done, or the game is past the premiere): any self-introduction after that is a repeat
+_VOICE_LOG_REPLIES = 4
+_VOICE_CLAUSE_MIN_WORDS = 7
+_TAGGED_LINE_RE = re.compile(r"^\s*@\[([^\]\n]{2,60})\]\s*[\u2014\u2013-]+\s*(.*)$")
+_VOICE_QUOTE_RE = re.compile(r"[\"\u201c]([^\"\u201d]*)[\"\u201d]")
+_INTRO_FACT_RE = re.compile(r"\b(?:I run|I own|I work|I manage|I teach|I'm a|I am a|I\u2019m a)\b|[A-Z][\w'.-]+(?: [A-Z][\w'.-]+)*,\s+[A-Z][\w'.-]+(?: [A-Z][\w'.-]+)*\s*[.\u2014\u2013-]")
+
+
+def _voice_norm(text: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9' ]+", " ", (text or "").lower().replace("\u2019", "'")).split())
+
+
+def _tagged_speech(narration: str) -> list:
+    """ORW-1133: [(speaker full name, [quoted spans of that tagged line])] for each `@[Name] - ...` line of a reply. Pure."""
+    out = []
+    for ln in (narration or "").split("\n"):
+        m = _TAGGED_LINE_RE.match(ln)
+        if not m:
+            continue
+        spans = [x.strip() for x in _VOICE_QUOTE_RE.findall(m.group(2)) if x.strip()]
+        if spans:
+            out.append((m.group(1).strip(), spans))
+    return out
+
+
+def _speech_clauses(spans) -> list:
+    """The normalised clauses (split on sentence ends, commas, colons, dashes) of >= _VOICE_CLAUSE_MIN_WORDS words: a repeated half-sentence counts as a repeat."""
+    out = []
+    for sp in spans:
+        for c in re.split(r"[.!?;:,\u2014\u2013]+|\s-\s", sp):
+            n = _voice_norm(c)
+            if len(n.split()) >= _VOICE_CLAUSE_MIN_WORDS:
+                out.append(n)
+    return out
+
+
+def _is_self_introduction(full: str, spans) -> bool:
+    """A tagged line whose first quoted words are the speaker's own name ("Valerie." / "Jace Herndon." / "I'm Ana") and whose quotes then state a hometown or job. Pure."""
+    parts = full.split()
+    if not parts or not spans:
+        return False
+    first, last = re.escape(parts[0]), re.escape(parts[-1])
+    head = spans[0]
+    named = re.match(rf"\s*{first}(?:\s+{last})?\s*[.,!\u2014\u2013-]", head + ".") or re.search(rf"\b(?:I'm|I am|I\u2019m|my name is|name's|name is)\s+{first}\b", head, re.I)
+    return bool(named and _INTRO_FACT_RE.search(" ".join(spans)))
+
+
+def voice_repeat_findings(user, narration: str) -> dict:
+    """ORW-1133: {"reintro": [names], "repeat": [(name, clause)]} for this reply against what the game has already heard. Pure read of the per-game voice log. Never raises."""
+    found = {"reintro": [], "repeat": []}
+    try:
+        key = _runway_key(user)
+        closed = key in _PREMIERE_CIRCLE_CLOSED
+        introduced = _VOICE_INTRODUCED.get(key) or set()
+        prior = {}
+        for rec in _VOICE_LOG.get(key) or []:
+            for who, cl in rec.items():
+                prior.setdefault(who, set()).update(cl)
+        for who, spans in _tagged_speech(narration):
+            if _is_self_introduction(who, spans) and (closed or who in introduced):
+                if who not in found["reintro"]:
+                    found["reintro"].append(who)
+                continue
+            for c in _speech_clauses(spans):
+                if c in prior.get(who, ()):
+                    found["repeat"].append((who, c))
+                    break
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:voice_repeat_findings:1", _fs_exc)
+    return found
+
+
+def note_voiced_lines(user, narration: str) -> None:
+    """ORW-1133: remember who introduced themselves in this reply and each speaker's clauses, for the repeat check on later replies. Never raises."""
+    try:
+        key = _runway_key(user)
+        rec: dict = {}
+        intro = _VOICE_INTRODUCED.setdefault(key, set())
+        for who, spans in _tagged_speech(narration):
+            if _is_self_introduction(who, spans):
+                intro.add(who)
+            cl = _speech_clauses(spans)
+            if cl:
+                rec.setdefault(who, []).extend(cl)
+        log = _VOICE_LOG.setdefault(key, [])
+        log.append(rec)
+        del log[:-_VOICE_LOG_REPLIES]
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_voiced_lines:1", _fs_exc)
+
+
+def _voice_repeat_directive(found: dict) -> Optional[str]:
+    parts = []
+    if found.get("reintro"):
+        names = _join_names(found["reintro"][:4])
+        parts.append(f"STOP RE-INTRODUCING PEOPLE: {names} already introduced themselves (the toast is over); your last turn had them recite their name, hometown and job again. Introductions are finished: "
+                     "no houseguest states their name, hometown or job as if meeting the player for the first time.")
+    if found.get("repeat"):
+        who, clause = found["repeat"][0]
+        parts.append(f"STOP REPEATING LINES: your last turn had {who} say again \"{clause[:70]}\", which they had already said. Every line must be new.")
+    if not parts:
+        return None
+    return " ".join(parts) + " Open your next turn by answering what the player's NEWEST message says, in the moment, with something the houseguests have not yet said."
+
+
+def check_voice_repeats(user, narration: str) -> None:
+    """ORW-1133: post-turn. Flag a reply that re-introduced someone or repeated a houseguest's own clause (counted belt + next-turn re-ground), then remember the reply. Never raises."""
+    try:
+        found = voice_repeat_findings(user, narration)
+        directive = _voice_repeat_directive(found)
+        if directive:
+            _reground_enqueue(_desync_key(user), directive)
+            _note_belt(user, "repeated-voice-reground")
+            logger.warning("[orwell] repeated voice detected for user=%s (reintro=%s, repeat=%s) - re-grounding next turn", user, found["reintro"], [w for w, _ in found["repeat"]])
+        note_voiced_lines(user, narration)
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:check_voice_repeats:1", _fs_exc)
+
+
 async def record_post_turn_desync_check(user, narration: str, this_turn_progressed: bool = True) -> None:
     """Post-turn layer of the desync spine: capture the AFTER signature, diff it against the
     BEFORE signature stored at the start of this turn, and when the narration asserted an outcome
@@ -4317,6 +4448,7 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
     try:
         _dkey = _desync_key(user)  # #1045: stable key — functions single-tenant (user=None) too.
         note_premiere_narration(user, narration)  # ORW-704: which arrivals / toast batch this reply named
+        check_voice_repeats(user, narration)  # ORW-1133: a houseguest re-introducing themselves or repeating their own line
         _cnote = _CEREMONY_UNVOICED.pop(_dkey, None)
         if _cnote and narration and _ceremony_count_unvoiced(narration, _cnote) and not _ceremony_beat_unvoiced(narration, _cnote):
             _c = _cnote["counts"]
@@ -10547,6 +10679,19 @@ async def apply_game_framing(
             try:
                 mp = await orwell_engine.get_moment_prompt(game_state.get("moment"), user=user)
                 pre_prompt = (mp or {}).get("systemPrompt") or PRE_GAME_PROMPT
+                # ORW-1126 (Ryne's prod casting, 2026-11-28): the account photo carries over to a new season, but the NEW season's casting file never recorded it, so the CASTING STATUS still listed the
+                # photo as step one and the producer asked for a photo the player already had (and said "the photo slot is still open"). Record the carried-over photo on the engine's casting file
+                # first, then re-read the prompt, so the status and the on-file note agree. Only when the status still asks for it; fail-open.
+                try:
+                    _cast = (game_state.get("casting") or {}) if isinstance(game_state, dict) else {}
+                    _asks_photo = "NEXT STEP: their cast photo" in pre_prompt or "castPhoto" in (_cast.get("missing") or [])
+                    if _asks_photo and "castPhoto" not in (_cast.get("known") or {}) and _player_photo_on_file(user):
+                        await orwell_engine.update_casting(dict(_CARRIED_PHOTO_FIELDS), user=user)
+                        _note_belt(user, "carried-photo-recorded")
+                        mp = await orwell_engine.get_moment_prompt(game_state.get("moment"), user=user)
+                        pre_prompt = (mp or {}).get("systemPrompt") or pre_prompt
+                except Exception as _cp_e:
+                    logger.warning("[orwell] carried cast photo not recorded for user=%s: %s", _gkey, _cp_e)
                 _stash_producer_name(user, mp)  # #1626: the casting producer byline for the client
             except Exception as e:
                 logger.warning("[orwell] interview moment-prompt fetch failed for user=%s: %s", _gkey, e)
@@ -11571,6 +11716,20 @@ async def _resolve_model_id(sess) -> Optional[str]:
     event loop, and every other player, once per chat turn."""
     return _normalize_model_id_from_cache(sess) or await asyncio.to_thread(
         normalize_model_id, sess.endpoint_url, sess.model)
+
+
+# ORW-1126: the ONLY casting write the casting framing makes (the b66 sanctioned-site marker): the photo-step marker for a photo already on file, never a substantive casting answer.
+_CARRIED_PHOTO_FIELDS = (("castPhoto", "uploaded"),)
+
+
+def _player_photo_on_file(user) -> bool:
+    """The player already has a cast photo: an uploaded or finalized headshot, or the account photo that survives a new-season scrub. Never raises."""
+    try:
+        from src import orwell_portraits
+        _intake = orwell_portraits.intake_status(user)
+        return bool(_intake.get("present") or _intake.get("finalized")) or bool(orwell_portraits.user_avatar_path(user))
+    except Exception:
+        return False
 
 
 async def build_chat_context(
