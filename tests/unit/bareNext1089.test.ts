@@ -1,13 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { playedGame } from "../support/playedGame";
 import { PLAYER, type EntityId } from "../../src/domain/ids";
-import { CALM_PRESENCE } from "../../src/engine/presenceConstants";
 
 /**
  * ORW-1089 (Ryne 2026-11-27): a bare "next" with nothing due fast-forwards, "ending as soon as a new person enters. Or game talk starts, or something similar. Whenever the player is prompted."
  * REAL PATH: a played game held on its schedule, the engine's own lever. Roles only.
  */
-interface Inside { presence: Map<EntityId, string> | null; names?: unknown; presenceTickCount: number; convoPartners: { ids: EntityId[]; tick: number } | null }
+interface Inside { presence: Map<EntityId, string> | null; names?: unknown }
 
 describe("ORW-1089: the bare-next fast-forward", () => {
   it("stops only on something that calls for the player, and a newcomer it names really is in the room and was not before", () => {
@@ -33,10 +32,7 @@ describe("ORW-1089: the bare-next fast-forward", () => {
           const now = [...inside.presence!].filter(([, where]) => where === inside.presence!.get(PLAYER)).map(([id]) => id);
           expect(inside.presence!.get(PLAYER), "the player did not move").toBe(room);
           const newcomers = now.filter((id) => !before.includes(id));
-          // The engine holds the person it named in the room for CALM_PRESENCE.holdTicks ticks; the commit after a long fast-forward runs more society ticks than that (ORW-1154: seating sleepers in their own beds moved which stops
-          // are followed by a long catch-up), so a newcomer is only asserted present while that hold still stands.
-          const held = inside.convoPartners !== null && inside.presenceTickCount - inside.convoPartners.tick <= CALM_PRESENCE.holdTicks;
-          if (held) expect(newcomers.length).toBeGreaterThan(0);
+          expect(newcomers.length).toBeGreaterThan(0);
         }
         if ([...reasons.values()].reduce((a, b) => a + b, 0) >= seed * 5) break;
       }

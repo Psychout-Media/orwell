@@ -1384,6 +1384,7 @@ export class GameSessionAdapter implements GameSession {
     const id = String(req.messageId);
     if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
     this.seenMessageIds.push(id);
+    if (this.convoPartners?.pinned) { delete this.convoPartners.pinned; this.convoPartners.tick = this.presenceTickCount; } // the pin on a bare-next newcomer ends with the player's next message; the ordinary hold takes over
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
     this.playerTurnNo++; // ORW-877: the turn a held tell belongs to
@@ -7991,7 +7992,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private calmPresenceEnabled = flagDefaultOn("ORWELL_CALM_PRESENCE");
   setCalmPresenceEnabled(on: boolean): void { this.calmPresenceEnabled = on; }
-  private convoPartners: { ids: EntityId[]; tick: number } | null = null;
+  private convoPartners: { ids: EntityId[]; tick: number; pinned?: true } | null = null;
   /** A recorded player scene's NPC partners: the houseguests the player is talking to (memory-only). */
   noteConversationPartners(ids: readonly EntityId[]): void {
     this.convoPartners = { ids: ids.filter((i) => i !== PLAYER), tick: this.presenceTickCount };
@@ -8023,7 +8024,7 @@ export class GameSessionAdapter implements GameSession {
   }
   private conversationHold(): ReadonlySet<EntityId> {
     const c = this.convoPartners;
-    return c && this.presenceTickCount - c.tick <= CALM_PRESENCE.holdTicks ? new Set(c.ids) : new Set<EntityId>();
+    return c && (c.pinned === true || this.presenceTickCount - c.tick <= CALM_PRESENCE.holdTicks) ? new Set(c.ids) : new Set<EntityId>();
   }
   presenceTick(rng?: RandomnessSource): void {
     if (!this.house) return;
@@ -19482,7 +19483,9 @@ export class GameSessionAdapter implements GameSession {
             const room = roomOfPlayer();
             const newcomer = [...this.presence].filter(([id, where]) => id !== PLAYER && where === room && awakeNow.has(id) && !withPlayer.has(id)).map(([id]) => id).sort()[0];
             if (newcomer) {
-              this.noteConversationPartners([newcomer]); // they stay with the player through the tick that follows the commit, so the person named is still there when the reply is told
+              this.noteConversationPartners([newcomer]);
+              if (this.convoPartners) this.convoPartners.pinned = true; // ORW-1154/1089: the commit after this stop runs catch-up society ticks (more than holdTicks); the named newcomer stays until the player's next message, never vanishes before it is read
+              // they stay with the player through the tick that follows the commit, so the person named is still there when the reply is told
               this.onPlayerEvent?.(`${this.nameOf(newcomer)} comes into the room`, [PLAYER, newcomer], "house-event");
               return { kind: "someone-entered", who: [this.nameOf(newcomer)] };
             }
