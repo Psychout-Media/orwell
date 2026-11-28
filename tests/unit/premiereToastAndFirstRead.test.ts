@@ -69,13 +69,13 @@ describe("item 4 - the first read at each arrival", () => {
 });
 
 describe("item 5 - the toast", () => {
-  it("releases TOAST_BATCH speakers per advance, the host first", () => {
-    expect(TOAST_BATCH).toBe(2);
+  it("releases TOAST_BATCH speakers per advance (ONE since ORW-1131), the host opening with the first speaker", () => {
+    expect(TOAST_BATCH).toBe(1);
     const sb = start(31);
     toToast(sb);
     const first = sb.session.advanceGame();
     const sp = (first.event!.detail as { speakers: unknown[] }).speakers;
-    expect(sp.length).toBe(TOAST_BATCH);
+    expect(sp.length).toBeLessThanOrEqual(TOAST_BATCH + 1); // the host + the first speaker (or the host alone when the player's slot is first)
     expect(sp[0]).toBe("host");
     expect(sb.engine.events.query({ type: "toast-speech" })[0]!.content).toMatch(/^The host/);
     const sizes: number[] = [sp.length];
@@ -87,7 +87,7 @@ describe("item 5 - the toast", () => {
     }
     // review of ORW-68: a slower pace would still satisfy "at most"; every batch but the last is exactly full
     expect(sizes.length, JSON.stringify(sizes)).toBeGreaterThan(1); // else the every() below is vacuous
-    expect(sizes.slice(0, -1).every((n) => n === TOAST_BATCH), JSON.stringify(sizes)).toBe(true);
+    expect(sizes.slice(1, -1).every((n) => n === TOAST_BATCH), JSON.stringify(sizes)).toBe(true); // the first release is the host + one speaker
   });
   it("movePlayer is a no-op during an entrances-ON toast", () => {
     const sb = start(32);

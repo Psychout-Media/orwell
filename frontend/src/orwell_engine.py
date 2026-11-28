@@ -1443,7 +1443,8 @@ async def end_of_session_summary(user: str | None = None) -> dict:
     return await _call("endOfSessionSummary", {}, user=user)
 
 
-async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None, toast_batches: int | None = None) -> dict:
+async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None, toast_batches: int | None = None,
+                       toast_voiced: list | None = None) -> dict:
     """Advance the weekly loop by one beat (HOH→noms→veto→ceremony→eviction→finale).
     NPC beats resolve automatically; returns the beat event, any pending player decision,
     and the public status. Vault-free.
@@ -1460,6 +1461,8 @@ async def advance_game(expected_beat_seq: int | None = None, idempotency_key: st
         args["idempotencyKey"] = idempotency_key
     if toast_batches is not None and toast_batches > 1:
         args["toastBatches"] = int(toast_batches)  # ORW-997: a watch-only toast circle flows several batches in one advance
+    if toast_voiced:
+        args["toastVoiced"] = [str(x) for x in toast_voiced if str(x).strip()][:20]  # ORW-1130: toasts the narration already showed; the engine never releases them again
     return await _call("advanceGame", args, user=user)
 
 

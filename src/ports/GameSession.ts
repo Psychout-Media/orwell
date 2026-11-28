@@ -1047,6 +1047,8 @@ export interface MakeDealReq {
   idempotencyKey?: string;
   /** ORW-997: the toast circle only: release up to this many batches (1 to 4, default 1) in ONE advance, so a watch-only circle can flow several steps in a turn. Ignored outside the toast. */
   toastBatches?: number;
+  /** ORW-1130: the toast circle only: houseguests (by name) the narration has already shown giving their toast; the engine records them as spoken so it never releases them again. Ignored outside the toast. */
+  toastVoiced?: string[];
 }
 
 /**
@@ -2197,6 +2199,8 @@ export interface PremiereIntrosView {
     playerToast?: "later" | "now" | "done";
     /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
     toastRemaining?: number;
+    /** ORW-1129: the latest release follows straight on from the player's own toast slot, so the player's last message was their toast (or their pass); the room answers it first. Toast stage only. */
+    playerJustToasted?: true;
     /** ORW-997: set only on a narration view when the caller (`getMomentPrompt` with `entranceVoiced`) reports that an earlier reply already voiced what this view shows (the latest arrival, or the latest toast batch). */
     voiced?: true;
   };

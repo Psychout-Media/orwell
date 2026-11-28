@@ -15,7 +15,7 @@ const shaken = (live: Live): string[] => (live.feelingsSeen ?? []).filter((k) =>
 
 describe("heart against game, in a played season", () => {
   it("a voter whose showmance partner sat on the block while their alliance wanted them out is shaken, and the bond fold records it", async () => {
-    const at = await firstStop((s: Stop) => shaken(s.sess.live as Live).length > 0, { from: 1, to: 16, hint: [2, 1], sandbox: (x) => `h764-${x}`, what: "a voter shaken by heart against game" }, { maxMessages: 1500 });
+    const at = await firstStop((s: Stop) => shaken(s.sess.live as Live).length > 0, { from: 1, to: 16, hint: [9, 2, 1], sandbox: (x) => `h764-${x}`, what: "a voter shaken by heart against game" }, { maxMessages: 1500 });
     const live = at.sess.live as Live;
     const keys = shaken(live);
     for (const k of keys) {

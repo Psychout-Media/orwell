@@ -28,3 +28,10 @@ Ryne's ruling (2026-11-18): the champagne circle is the meet-the-cast moment - o
 
 ## Amendment 2026-11-23 (ORW-800)
 - **An older save arms on load.** A save already in the toast with no `introduced` record (written by the code before the no-tour arming) is armed at the end of a resume (`registry.importSnapshot` calls `armRestoredMeetTheCast`, after the relationship layer is loaded): everyone who has already spoken in the toast (never the host) is introduced, in order, with their first-impression fold; the rest are introduced as the circle runs. Nothing a save held is dropped (`retroArmedIntroductions` in `sessionSnapshot.ts`, a pure superset helper). A save in the entrances, a finished circle, an armed record (even an empty one), or the flag off, is left as it was.
+
+## Amendment 2026-11-28 (ORW-1129, ORW-1130, ORW-1131, ORW-1132; Ryne's prod premiere)
+
+- **One toast a turn (ORW-1131, Ryne approved).** `TOAST_BATCH` is 1: each release is one houseguest's toast, and two or three others react and play off it. The host opens with the first speaker. An explicit "keep going" releases up to three (`_TOAST_FLOW_BATCHES`).
+- **The player's slot waits (ORW-1129).** A release never runs past the player's slot. The slot is released alone; that reply ends on the invitation, and the next release comes on the player's next message (their toast or a pass). That release carries `playerJustToasted`, so the room answers the toast first.
+- **Nobody toasts twice (ORW-1130).** The front end reads which houseguests a reply showed giving their toast (`toasts_voiced_in`) and hands them to the engine as `advanceGame.toastVoiced`. The engine records them as spoken, out of order if need be, and never releases them again.
+- **The close is a moment (ORW-1132).** When the release closes the circle, the reply carries the host's call that ends the circle and opens the bedrooms, before the house breaks up.
