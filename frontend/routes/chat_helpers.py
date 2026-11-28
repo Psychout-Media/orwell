@@ -10938,6 +10938,34 @@ def mark_message_phase(message, phase: str) -> None:
         logger.warning("Failed to mark message phase=%s", phase, exc_info=True)
 
 
+def _current_season_rows(history):
+    """ORW-1051: the newest season's rows of a chat (see core.models.current_season_rows); what every prompt-side reader of the history uses."""
+    from core.models import current_season_rows
+    return current_season_rows(history)
+
+
+def _earlier_season_played(hist) -> bool:
+    """ORW-718/ORW-1051: did an EARLIER season play in this chat before the trailing line? True when a `game`-stamped row sits above
+    it with no `season_start` row between (the newest season's own first line closes the search: that season is the current one)."""
+    for m in reversed(list(hist or [])[:-1]):
+        md = getattr(m, "metadata", None) or {}
+        if md.get("season_start"):
+            return False
+        if md.get("phase") == "game":
+            return True
+    return False
+
+
+def _stamp_season_start(msg) -> None:
+    from core.models import _session_manager as _sm
+    if _sm is not None and hasattr(_sm, "mark_message_season_start"):
+        _sm.mark_message_season_start(msg)
+    else:
+        if msg.metadata is None:
+            msg.metadata = {}
+        msg.metadata["season_start"] = True
+
+
 def mark_new_season_start(sess) -> bool:
     """ORW-718: stamp the trailing user line `season_start` when an EARLIER season was played in this chat (a `game`-stamped
     line after the newest season start, or from the top when there is none). Called only on a pre-game turn the engine
@@ -10948,23 +10976,28 @@ def mark_new_season_start(sess) -> bool:
     last = hist[-1]
     if (getattr(last, "metadata", None) or {}).get("season_start"):
         return False
-    for m in reversed(hist[:-1]):
-        md = getattr(m, "metadata", None) or {}
-        if md.get("season_start"):
-            return False
-        if md.get("phase") == "game":
-            from core.models import _session_manager as _sm
-            if _sm is not None and hasattr(_sm, "mark_message_season_start"):
-                _sm.mark_message_season_start(last)
-            else:
-                if last.metadata is None:
-                    last.metadata = {}
-                last.metadata["season_start"] = True
-            return True
+    if _earlier_season_played(hist):
+        _stamp_season_start(last)
+        return True
     return False
 
 
-_PENDING_SEASON_BOUNDARY: set = set()  # ORW-1051: owners whose restart ran with no chat bound; the next turn's user line opens the season
+_PENDING_SEASON_BOUNDARY: set = set()  # ORW-1051: owners whose season was just created or reset; the next turn's user line opens the season in a chat that already played one
+
+
+def _remember_season_boundary(user) -> None:
+    """ORW-1051: EVERY door that creates or resets a season (the chat tool, /next-season with keep, /new-game, God Mode) fires this through
+    `orwell_engine.on_season_reset`. The next turn's user line is the new season's first line IF this chat already played one
+    (`_consume_pending_season_boundary` checks that), so a keep-character restart, which goes straight to live play with no casting turn
+    to trip `mark_new_season_start`, cuts the old season out of the narrator's window too."""
+    _PENDING_SEASON_BOUNDARY.add(str(user))
+
+
+try:
+    from src import orwell_engine as _oe_for_boundary
+    _oe_for_boundary.on_season_reset(_remember_season_boundary)
+except Exception as _fs_exc:
+    _failsoft_note("chat_helpers:module:orw1051", _fs_exc)
 
 
 def mark_season_boundary_for_owner(owner) -> bool:
@@ -10979,12 +11012,8 @@ def mark_season_boundary_for_owner(owner) -> bool:
         hist = getattr(sess, "history", None) or []
         for m in reversed(hist):
             if getattr(m, "role", None) == "user":
-                if _sm is not None and hasattr(_sm, "mark_message_season_start"):
-                    _sm.mark_message_season_start(m)
-                else:
-                    if m.metadata is None:
-                        m.metadata = {}
-                    m.metadata["season_start"] = True
+                _stamp_season_start(m)
+                _PENDING_SEASON_BOUNDARY.discard(str(owner))  # this restart is stamped; the next turn must not open a second season
                 return True
     except Exception:
         logger.debug("[orw-1051] bound-chat season stamp failed", exc_info=True)
@@ -10993,19 +11022,15 @@ def mark_season_boundary_for_owner(owner) -> bool:
 
 
 def _consume_pending_season_boundary(sess, user) -> None:
-    """ORW-1051: apply a remembered restart to this turn's trailing user line (see mark_season_boundary_for_owner)."""
+    """ORW-1051: apply a remembered season create/reset (see `_remember_season_boundary`) to this turn's trailing user line. The line opens a NEW
+    season only when this chat already played one; a first season's own creation, or a chat that never played, only clears the marker."""
     if str(user) not in _PENDING_SEASON_BOUNDARY:
         return
     _PENDING_SEASON_BOUNDARY.discard(str(user))
     hist = getattr(sess, "history", None) or []
-    if hist and getattr(hist[-1], "role", None) == "user":
-        from core.models import _session_manager as _sm
-        if _sm is not None and hasattr(_sm, "mark_message_season_start"):
-            _sm.mark_message_season_start(hist[-1])
-        else:
-            if hist[-1].metadata is None:
-                hist[-1].metadata = {}
-            hist[-1].metadata["season_start"] = True
+    if hist and getattr(hist[-1], "role", None) == "user" and not (getattr(hist[-1], "metadata", None) or {}).get("season_start"):
+        if _earlier_season_played(hist):
+            _stamp_season_start(hist[-1])
 
 
 def discard_last_user_message(sess) -> None:
@@ -11567,6 +11592,13 @@ async def build_chat_context(
     user = effective_user(request)
     uprefs = load_prefs_for_user(user)
 
+    # ORW-1051: a season was created or reset since the last turn; if this chat already played one, THIS line opens the new season. Done before
+    # anything below reads the history (the player-move parser's previous reply, the show brief's scene tail, the narrator's window).
+    try:
+        _consume_pending_season_boundary(sess, user)
+    except Exception:
+        logger.debug("[orw-1051] pending season boundary skipped", exc_info=True)
+
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
     _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user)
@@ -11578,7 +11610,7 @@ async def build_chat_context(
         from src.settings import game_build_enabled as _gbe_pm
         if _gbe_pm():
             from src.orwell_player_move import resolve_player_move_before_narrator
-            _prev_reply = next((_game_narration(m.content) for m in reversed(getattr(sess, "history", None) or []) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
+            _prev_reply = next((_game_narration(m.content) for m in reversed(_current_season_rows(getattr(sess, "history", None))) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
             from src.orwell_player_move import act_first_before_narrator
             # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
             if not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
@@ -11637,11 +11669,11 @@ async def build_chat_context(
     # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF): the last lines the player saw, for the brief's "how the
     # last scene ended". Off ⇒ the framing call is exactly as before (no extra keyword).
     from src import orwell_show_brief as _show_brief
-    _brief_kw = ({"last_scene_tail": _show_brief.last_scene_tail(getattr(sess, "history", None))}
+    _brief_kw = ({"last_scene_tail": _show_brief.last_scene_tail(_current_season_rows(getattr(sess, "history", None)))}
                  if _show_brief.show_brief_enabled() else {})
     if _brief_kw:
         # K6 §5.1: after a restart, pick up what the narrator last saw from the newest assistant row that carries it.
-        _show_brief.adopt_history_seen(user, getattr(sess, "history", None))
+        _show_brief.adopt_history_seen(user, _current_season_rows(getattr(sess, "history", None)))
     engine_available, game_active, feed_down = await apply_game_framing(
         preface, user, incognito,
         session_id=session_id,                              # P2: re-entry on a fresh context
@@ -11668,10 +11700,6 @@ async def build_chat_context(
     # ORW-224b: only when the turn is actually FRAMED as casting (the game build with the engine up, or feeds-down),
     # the same condition the assistant-reply stamp uses (`ctx.framed and not ctx.game_active`). In the workspace
     # build (ORWELL_GAME_BUILD=0) there is no casting interview, so no stamp, and compaction stays available there.
-    try:
-        _consume_pending_season_boundary(sess, user)
-    except Exception:
-        logger.debug("[orw-1051] pending season boundary skipped", exc_info=True)
     if not game_active and framed and getattr(sess, "history", None):
         _last = sess.history[-1]
         if getattr(_last, "role", None) == "user":
