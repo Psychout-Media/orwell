@@ -196,11 +196,11 @@ Fixes: `_direct_applied` is bound before the round loop (AST test pins it); act 
 
 ## 2. The belts that fired
 
-Per game turn (belts that count under `ENGINE_CHANGE_BELT_PREFIXES` in capitals): 99 AUTO-RECORD-SCENE; 100 AUTO-MOVE-NPC, AUTO-RECORD-SCENE; 101 AUTO-RECORD-SCENE; 102 crashed (no row); 103 AUTO-RECORD-SCENE; 104 AUTO-RECORD-SCENE; 105 AUTO-MOVE-NPC, AUTO-RECORD-SCENE; 106 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE; 107 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE; 108 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE; 109 AUTO-RECORD-SCENE; 110 AUTO-MOVE-NPC x4, AUTO-RECORD-SCENE, narrator advanceGame (forced, honored); 111 narrator advanceGame only. (Turn numbers are the message index in the session; ids, not text.)
+Per game turn, by message index (belts that count under `ENGINE_CHANGE_BELT_PREFIXES` are `auto-*`): 99 auto-record-scene; 100 auto-move-npc, auto-record-scene; 101 auto-record-scene; 102 crashed (no row); 103 auto-record-scene; 104 auto-record-scene; 105 auto-move-npc, auto-record-scene; 106 auto-move-npc x4, auto-record-scene; 107 auto-move-npc x4, auto-record-scene; 108 auto-move-npc x4, auto-record-scene; 109 auto-record-scene; 110 auto-move-npc x4, auto-record-scene, plus the narrator's own advanceGame (forced, honored); 111 the narrator's advanceGame only. Rows 99 to 109 except 102 are `belt` (10), 110 is `both`, 111 is `narrator`.
 
 * `auto-record-scene` fired on 11 of 12 rowed turns. It is the belt that makes 10 of the 12 turns `belt`: it is a JSON extraction from the prose after the reply (`_auto_record_scene`), standing in for the narrator's `recordInteraction`. A player cue does not trigger it: it is the narrator's omission, and the player's act is open-set speech.
-* `auto-move-npc` fired on 6 of 12 turns (24 NPC moves): after-the-prose extraction of NPC movement, ADR 0009 ruling 1 (NPC movement is narrated and the engine records it).
-* `premiere-arrival-pre-release` fired on 7 of 12 turns, `premiere-arrival-postreply-deferred` once, `ceremony-unvoiced-reground` on 5, `desync-reground-voiced` on 8, `presence-wall` once, `companion-reseat` twice, `advance-stall-nudge` once. NONE of these is in `ENGINE_CHANGE_BELT_PREFIXES`: they were never counted as belt-driven.
+* `auto-move-npc` fired on 6 of 12 turns (18 NPC moves): after-the-prose extraction of NPC movement, ADR 0009 ruling 1 (NPC movement is narrated and the engine records it).
+* `premiere-arrival-pre-release` fired on 6 of 12 turns, `premiere-arrival-postreply-deferred` once, `ceremony-unvoiced-reground` on 5, `desync-reground-voiced` on 6, `presence-wall` once, `companion-reseat` twice, `advance-stall-nudge` once. NONE of these is in `ENGINE_CHANGE_BELT_PREFIXES`: they were never counted as belt-driven.
 
 So the premise "mostly premiere-arrival-pre-release" is about the belts that FIRED, not about the belts that made the turn `belt`. The driver label was already right about the premiere.
 
@@ -228,7 +228,7 @@ Outcomes: 1 acted (turn 102, correct: a move to a named room), 8 noAction (680 t
 
 ## 5. The no-call pre-filter
 
-9 of 13 prod calls ended noAction at 0.7 to 1.3 s each. `can_commit_nothing` skips the call when `validate_calls` would reject EVERY call the model could make: a move or a bed claim needs a room the player's own words ground, a search needs an active houseguest's name in the words, a sleep needs a sleep word, and any offered step answer (advance, competition, deal) keeps the call. It mirrors the validator, so it cannot skip a real act: on the 880-row replay corpus no row that expects an act was skipped (0 of 183 newly skipped rows). On the 13 prod game turns it skips 4 to 8 of the 8 noAction calls, depending on where the player stood (the room is not in the journal).
+9 of 13 prod calls ended noAction at 0.7 to 1.3 s each. `can_commit_nothing` skips the call when `validate_calls` would reject EVERY call the model could make: a move or a bed claim needs a room the player's own words ground, a search needs an active houseguest's name in the words, a sleep needs a sleep word, and any offered step answer (advance, competition, deal) keeps the call. It mirrors the validator, so it cannot skip a real act: on the 880-row replay corpus no row that expects an act was skipped (0 of 183 newly skipped rows). On the 13 prod game turns it skips 4 to 7 of the 8 noAction calls, depending on where the player stood (the room is not in the journal).
 
 ## 6. Gates (Kevin's: 98 percent correct, at most 1 wrong commit per 200, added p95 at most 2 s) and the share
 
