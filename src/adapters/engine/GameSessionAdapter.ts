@@ -318,7 +318,7 @@ import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
 import { decideVoteTalk, keepCredit, voteTalkCunning } from "../../engine/voteTalk";
-import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
+import { bedTable, freeInRoomWords, claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
 import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHouseTheme, registerHouseTheme, acceptHouseThemeDraft, houseTheme as houseThemeById } from "../../engine/roomLabels";
 /** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
 const MAX_PRIOR_HOUSE_THEMES = 6;
@@ -9308,14 +9308,9 @@ export class GameSessionAdapter implements GameSession {
     const racing = Object.entries(br?.plan ?? {}).filter(([id]) => living.has(id) && !beds.owner[id]);
     const byRoom = new Map<Room, string[]>();
     for (const [id, p] of racing) byRoom.set(p.room, [...(byRoom.get(p.room) ?? []), this.nameOf(id)]);
-    const open = BEDROOM_LAYOUT.filter((spec) => freeBeds(beds, living).some((b) => roomOfBed(b) === spec.room)).map((spec) => this.roomName(spec.room));
-    const claimed = BEDROOM_LAYOUT.map((spec) => ({ spec, who: roommatesIn(beds, spec.room, living) })).filter((x) => x.who.length > 0)
-      .map(({ spec, who }) => `${this.roomName(spec.room)}: ${who.map((id) => (id === PLAYER ? "the player" : this.nameOf(id))).join(", ")}`);
     const parts = [
       s.premiereEntrance.stage === "done" && !br ? "The circle has closed and the house is released: the race for the bedrooms is about to begin; a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back" : "The bed rush is on: a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back",
       ...(racing.length ? [`Still racing: ${[...byRoom].map(([room, names]) => `${names.join(", ")} for ${this.roomName(room)}`).join("; ")}`] : []),
-      `Beds already claimed (engine truth, by room): ${claimed.length ? claimed.join("; ") : "none yet"}`,
-      `Rooms with beds still open: ${open.length ? open.join(", ") : "none"}`,
     ];
     return parts.join(". ");
   }
@@ -9608,7 +9603,11 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-1090: the player-involved wake reaction of this tick (told to the narrator for one turn). Memory-only. */
   private bedWakeNote: { sleeper: string; joiner: string; mood: "annoyed" | "fine" } | null = null;
 
+  /** ORW-1153: this turn's player words talk about beds (a question, a claim, a trade): the per-bed table rides this turn even after the player has a bed. Memory-only. */
+  private playerBedTalk = false;
+
   private resolvePlayerBed(text: string): boolean {
+    this.playerBedTalk = /\b(?:beds?|bunks?|doubles?|singles?|half|halves|sleeping spots?|spots?)\b/i.test(text);
     const changed = this.resolvePlayerBedInner(text);
     // A note on a request that changed nothing is a refusal, except the plain "already have it there" (nothing was asked of the game).
     this.playerBedRefusal = !changed && this.playerBedNote !== null && !/already has their bed/.test(this.playerBedNote) ? this.playerBedNote.replace(/\s*\(engine truth:[^)]*\)/g, "") : null;
@@ -9645,7 +9644,15 @@ export class GameSessionAdapter implements GameSession {
       const mine = beds.owner[PLAYER];
       if (mine && roomOfBed(mine) === room && !bed && (!prefer || isDoubleSpot(mine) === (prefer === "double"))) { this.playerBedNote = `the player already has their bed in ${this.roomName(room)}`; return false; }
       bed ??= freeBedIn(beds, room, living, prefer);
-      if (!bed) { this.playerBedNote = `the player wanted a bed in ${this.roomName(room)}, but every spot there is taken (they can ask one of its owners to swap)`; return false; }
+      // ORW-1153: a named kind ("the double in the barrel room") lands on a free spot of THAT kind in THAT room, or the reply says so and names what is free there and elsewhere; never a silent single in place of a double.
+      if (bed && prefer && isDoubleSpot(bed) !== (prefer === "double")) bed = undefined;
+      if (!bed) {
+        const inRoom = bedTable(beds, living, (r) => this.roomName(r), (id) => this.nameOf(id)).freeByRoom[room] ?? [];
+        this.playerBedNote = inRoom.length
+          ? `the player wanted ${prefer === "double" ? "a double" : prefer === "single" ? "a single" : "a bed"} in ${this.roomName(room)}, but there is none free there (${freeInRoomWords(inRoom)}; ${this.freeSummaryWords(beds, living)}); say that room has no free ${prefer ?? "spot"} and name what is free`
+          : `the player wanted a bed in ${this.roomName(room)}, but every spot there is taken (${this.freeSummaryWords(beds, living)}; they can ask one of its owners to swap)`;
+        return false;
+      }
       const later = mine !== undefined; // slice 3: a move after their first bed
       const leftMate = mine ? bedPartner(beds, PLAYER, living) : undefined;
       claimBed(beds, PLAYER, bed, day, later ? "move" : "move-in", living);
@@ -9701,22 +9708,24 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedsLine(): string | undefined {
     const beds = this.live?.playedGame === true ? this.live.beds : undefined; // a read: never claims
-    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote && !this.bedRushRunning())) return undefined;
+    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote && !this.bedRushRunning() && !this.playerBedTalk)) return undefined;
     const living = new Set(this.livingIds());
     const label = (id: EntityId): string => (id === PLAYER ? "the player" : this.nameOf(id));
-    const rooms = BEDROOM_LAYOUT.map((spec) => {
-      const who = roommatesIn(beds, spec.room, living);
-      const total = spotsIn(spec);
-      const free = freeBeds(beds, living).filter((b) => roomOfBed(b) === spec.room);
-      const freeSingles = free.filter((b) => !isDoubleSpot(b)).length;
-      const names = who.map((id) => { const p = bedPartner(beds, id, living); return p ? `${label(id)} (sharing a double with ${label(p)})` : label(id); });
-      const room = `${this.roomName(spec.room)} (${spec.singles} singles, ${spec.doubles} doubles)`;
-      return `${room}: ${free.length > 0 ? `${free.length} of ${total} spots free (${freeSingles} single${freeSingles === 1 ? "" : "s"}, ${free.length - freeSingles} double ${free.length - freeSingles === 1 ? "half" : "halves"})` : "full"}${names.length ? `; sleeping there: ${names.join(", ")}` : "; nobody yet"}`;
-    });
+    const t = bedTable(beds, living, (r) => this.roomName(r), label);
     const mine = beds.owner[PLAYER];
     const own = mine ? `The player's bed is in ${this.roomName(roomOfBed(mine))}.` : `The player has not picked a bed yet${BED_RULES.leftoverAtFirstBedtime ? " (if they never do, they get the one left over at their first bedtime)" : ""}.`;
     const rush = this.bedRushFacts();
-    return `${rooms.join("; ")}. ${own}${rush ? ` ${rush}.` : ""}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
+    // ORW-1153: the narrator's ONLY bed facts are this per-bed table and its free count; the rules close the ways it got a double wrong (a room's roster read as a bed's occupants; "the last bed" with spots free).
+    return `PER-BED TABLE, one line item per single and per double half (this table is the ONLY source for any bed statement): ${t.rooms.join("; ")}. FREE SPOTS HOUSE-WIDE: ${t.free} of ${t.total}. ${own}`
+      + ` BED RULES: a single sleeps ONE houseguest and a double sleeps TWO, one per half, so never put more than one in a single or more than two in a double, and name a bedmate only from the two halves of that one double; call a room full only when none of its items says free, and say the beds are all claimed (the last bed gone) only when FREE SPOTS HOUSE-WIDE is 0; a houseguest still racing holds no spot until the table shows one; when the player asks about beds (what is open, who they could share with), answer straight from the table in each room's themed name, naming each free half and who has the other half of that double, and never improvise a different answer on a repeat.`
+      + `${rush ? ` ${rush}.` : ""}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
+  }
+
+  /** ORW-1153: what is free, room by room, in words (for a refusal that must name what the player can take instead). */
+  private freeSummaryWords(beds: BedsState, living: ReadonlySet<EntityId>): string {
+    const t = bedTable(beds, living, (r) => this.roomName(r), (id) => this.nameOf(id));
+    const parts = BEDROOM_LAYOUT.filter((r) => t.freeByRoom[r.room]!.length).map((r) => `${this.roomName(r.room)}: ${t.freeByRoom[r.room]!.join(", ")}`);
+    return parts.length ? `free spots: ${parts.join("; ")}` : "no spot is free anywhere in the house";
   }
 
   /**
