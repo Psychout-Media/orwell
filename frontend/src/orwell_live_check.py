@@ -18,7 +18,7 @@ async def prepare_account(username: str, player: str, seed: int, timeout_s: floa
     try:
         orwell_prewarm.reset_user_season(username)
         res = await orwell_engine.create_character(player, seed=seed, user=username)
-    except Exception as e:
+    except Exception as e:  # failsoft-ok: the failure is returned to the caller by name (ok false, reason) and logged; this is an operator door, not a turn
         logger.warning("[ops] live-check season start failed: %s", type(e).__name__)
         return {"ok": False, "created": True, "reason": f"season start failed: {type(e).__name__}"}
     if not isinstance(res, dict) or not res.get("started") or res.get("createRefused"):

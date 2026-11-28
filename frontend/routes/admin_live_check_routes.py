@@ -72,7 +72,7 @@ def clear_hold() -> dict:
 async def _body(request: Request) -> dict:
     try:
         b = await request.json()
-    except Exception:
+    except Exception:  # failsoft-ok: an unreadable body is an empty body; each route then refuses it with a named 400
         return {}
     return b if isinstance(b, dict) else {}
 
