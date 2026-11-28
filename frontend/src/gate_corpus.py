@@ -49,7 +49,7 @@ def acts_of_turn(tool_names: Iterable[str], narration: str = "", moved: bool = F
         out.add("move")
     try:
         from src import claim_commit
-        out |= {_CLAIM_ACT[c.kind] for c in claim_commit.extract_claims(narration or "") if c.kind in _CLAIM_ACT}
+        out |= {_CLAIM_ACT[c.kind] for c in (*claim_commit.extract_claims(narration or ""), *claim_commit.sleep_claims(narration or "")) if c.kind in _CLAIM_ACT}
     except Exception:  # failsoft-ok: labels from tools alone
         pass
     return sorted(out)

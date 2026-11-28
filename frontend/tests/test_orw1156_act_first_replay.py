@@ -10,13 +10,13 @@ CTX = {"here": "living-room", "people": ["Rowan", "Casey"], "room_names": None, 
 ROOMS = ["kitchen", "backyard", "lounge", "bathroom", "dining-room"]
 SAY = {"kitchen": "the kitchen", "backyard": "the backyard", "lounge": "the lounge", "bathroom": "the bathroom", "dining-room": "the dining room"}
 
-DO_MOVE = ["I go to {r}.", "I head to {r}.", "I walk into {r}.", "Going to {r}.", "I'm heading to {r} now."]
-NO_MOVE = ["Should I go to {r}?", "I will go to {r} later.", "Rowan went to {r}.", "What is in {r}?", "I don't want to go to {r}.", "Rowan says he is in {r}.",
+DO_MOVE = ["I walk on into {r}.", "I stroll over to {r}.", "I move to {r}.", "I run to {r}.", "I walk over to {r}.", "I step into {r}.", "I go on into {r} now.", "Heading to {r}.", "I make my way to {r}.", "I go to {r}.", "I head to {r}.", "I walk into {r}.", "Going to {r}.", "I'm heading to {r} now."]
+NO_MOVE = ["Rowan is heading to {r}.", "I hate {r}.", "Nobody is in {r}.", "I think {r} is lovely.", "Casey is walking to {r}.", "Is {r} open?", "I would never go to {r}.", "Maybe I will head to {r} tomorrow.", "I like {r}.", "Rowan, meet me in {r}.", "Should I go to {r}?", "I will go to {r} later.", "Rowan went to {r}.", "What is in {r}?", "I don't want to go to {r}.", "Rowan says he is in {r}.",
            "I was in {r} earlier.", "Do you want to go to {r}?", "I wonder what happens in {r}.", "Rowan, meet me in {r} tomorrow."]
 DO_SLEEP = ["I go to bed.", "I'm going to sleep now.", "I turn in for the night.", "Time for bed, I am going to sleep."]
 NO_SLEEP = ["Do you want to go to bed?", "Rowan is asleep.", "I don't want to sleep yet.", "Should I go to bed?", "Rowan says good night."]
 SEARCH = ["I'm going to find {p}.", "I go look for {p}."]
-NO_SEARCH = ["{p} is in the kitchen.", "Tell {p} hello.", "I like {p}.", "{p} said hi to me."]
+NO_SEARCH = ["Is {p} nice?", "I told {p} the plan.", "{p} and I talked.", "{p} is in the kitchen.", "Tell {p} hello.", "I like {p}.", "{p} said hi to me."]
 BED = ["I grab a single bed in bedroom a.", "I claim a double bed in bedroom b."]
 NO_BED = ["Who has the single bed in bedroom a?", "Rowan claims the bed in bedroom a.", "I might take a bed in bedroom b later."]
 
@@ -25,7 +25,7 @@ def cases():
     out = []  # (text, expected acts as a tuple of tool names)
     for r, t in itertools.product(ROOMS, DO_MOVE):
         out.append((t.format(r=SAY[r]), (("moveTo", r),)))
-    for r, t in itertools.product(ROOMS[:4], NO_MOVE):
+    for r, t in itertools.product(ROOMS, NO_MOVE):
         out.append((t.format(r=SAY[r]), ()))
     out += [(t, (("turnIn",),)) for t in DO_SLEEP] + [(t, ()) for t in NO_SLEEP]
     for p, t in itertools.product(["Rowan", "Casey"], NO_SEARCH):
@@ -83,5 +83,6 @@ def test_replay_precision_gate():
     print(f"ORW-1156 act-first replay: n={n} correct={correct} ({100*correct/n:.1f}%) wrong-commits={wrong} ({200*wrong/n:.2f} per 200) missed={missed}")
     for b in bad[:10]:
         print("  wrong:", b)
+    assert n >= 200, n
     assert correct / n >= 0.98, bad
     assert wrong * 200 / n <= 1.0, bad

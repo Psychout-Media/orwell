@@ -181,6 +181,7 @@ _PAST = re.compile(r"\b(went|walked|ran|got to|have gone|had gone|i'?ve gone|i h
 _NOT_A_MOVE = re.compile(
     r"\b(?:by|past|through|across|crazy|nuts|mad|wild|swimming|shopping|fishing)\b"
     r"|\b(?:move|take|bring|carry|drag|pull|push|walk|lead|follow|show|send)\b\s+(?:the|a|my|his|her|their|them|him)\s|\b(?:drag|pull|push|send)\b\s+(?-i:[A-Z]\w+)\s|(?-i:[A-Z][a-z]+\s+(?:Lounge|Kitchen|Garden|Pool|Bath|Dining|Hall|Yard|Room))|(?-i:(?:Lounge|Kitchen|Garden|Pool|Bath|Dining|Hall|Yard)\s+[A-Z][a-z]+)"
+    r"|\bmeet\s+(?:me|us)\b|\bcome\s+(?:to|here|over)\b"  # ORW-1156: an invitation to someone else is not the player's move
     r"|\bgo (?:and|to) (?:sit|eat|sleep|lie|lay)\b|\bgo (?:meet|visit|talk|look)\b"
     r"|\b(?:what if|do i|should i|can i|may i|shall i|could i|am i)\b|\w+'s (?:room|bedroom|bed)\b|\b(?:want|need)\s+(?:the|a)\b|\bdown\b|\blook(?:ing)? around\b|\bi mean\b|\b(?:or|whichever|look(?:ing)? (?:in|for|at)|peek|glance|check|scan|point me|find)\b", re.I)
 _FIRSTPERSON = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|fine|now|and|but|hey|also|copy that|haha|lol)[\s,.!]+)*(?:i\b|i'|i’|let'?s|lets|let us|we\b|me\b|my\b|go\b|going\b|heading\b|head\b|walking\b|walk\b|run\b|off\b|move\b|dibs\b|claim\b|taking\b|take\b|grab\b|take me|lead me|bring me|enter\b|time to|\*)", re.I)
@@ -224,7 +225,7 @@ def room_vetoed(room: str, text: str, ctx: dict) -> bool:
     hit = [(i, c) for i, c in enumerate(cl) if grounded_ctx(room, c, ctx)]
     if not hit:
         return not grounded_ctx(room, text, ctx)
-    return any(clause_vetoed(c, i == 0) for i, c in hit)
+    return any(clause_vetoed(c, i == 0) or not _MOTION_W.search(c) for i, c in hit)  # ORW-1156: a clause that names a room with no motion in it ('I like the kitchen') moves nobody
 
 
 @gate_log.logged("move-veto", fired=lambda r: not r)
