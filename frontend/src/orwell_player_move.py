@@ -13,6 +13,7 @@ the engine actually applied a move.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -209,6 +210,193 @@ def apply_escort(user: Optional[str], payload: Optional[dict], client_msg_id: Op
         logger.warning("[orwell] escort hand-off skipped", exc_info=True)
 
 
+# ── ORW-1174: ACCEPT / FOLLOW. A houseguest's invitation is their consent: the player's yes commits BOTH walks ────────────────────
+#: ORW-1174: the player has said yes to an invitation and the engine has put the two together: {id, name, room}. The narrator's rule for the walk is tied to this engine fact (see `follow_notes`).
+_ON_THE_WAY: dict = {}
+
+
+def on_the_way(user) -> Optional[dict]:
+    """The accepted invitation the engine has already walked, for this user's current message (None otherwise)."""
+    d = _ON_THE_WAY.get(user or "")
+    return dict(d) if d else None
+
+
+def _reply_lines(previous_reply, roster: dict) -> list:
+    """[(id, line)] for the tagged lines (`@[Name] ...`) of the last story reply, in order; only houseguests on the roster."""
+    import re
+    by_name = {str(n).strip().lower(): i for i, n in roster.items()}
+    out = []
+    for m in re.finditer(r"^\s*@\[([^\]]+)\]\s*(.*)$", previous_reply or "", re.M):
+        hid = by_name.get(m.group(1).strip().lower())
+        if hid:
+            out.append((hid, m.group(2)))
+    return out
+
+
+async def invite_context(text: Any, user: Optional[str], previous_reply: Optional[str] = None, *, engine: Any = None, state: Any = None, status: Any = None, wa: Any = None) -> Optional[dict]:
+    """The standing invitation the player's words may be answering, as `act_first.find_invite` reads it (an open talk ask, or a houseguest HERE whose line in the last reply invites), plus the context it was read from
+    under key `ctx`. None when none stands, a card decision is open, or the game has not started. Never raises."""
+    try:
+        from src import act_first as af
+        if engine is None:
+            from src import orwell_engine as engine  # type: ignore[no-redef]
+        state = state if state is not None else await engine.get_game_state(user=user)
+        if not isinstance(state, dict) or state.get("started") is False:
+            return None
+        status = status if status is not None else await engine.game_status(user=user)
+        pend = ((status or {}).get("pending") or {}) if isinstance(status, dict) else {}
+        if isinstance(pend, dict) and (pend.get("kind") or "").strip():
+            return None  # a card decision is open: the card owns the turn
+        wa = wa if wa is not None else await engine.whereabouts(user=user)
+        here = (wa or {}).get("room") if isinstance(wa, dict) else None
+        if not here:
+            return None
+        roster = {str(h.get("id")): str(h.get("name")) for h in (state.get("house") or []) if isinstance(h, dict) and h.get("id") and h.get("name") and str(h.get("status") or "active") == "active"}
+        present = [str(p.get("id")) for p in ((wa or {}).get("present") or []) if isinstance(p, dict) and p.get("id")]
+        hoh = ((status or {}).get("hoh") or {}) if isinstance(status, dict) else {}
+        hoh_id = str(hoh.get("id")) if isinstance(hoh, dict) and hoh.get("id") else None
+        oa = state.get("openTalkAsk")
+        open_ask = None
+        if isinstance(oa, dict) and isinstance(oa.get("from"), dict) and oa["from"].get("id"):
+            open_ask = {"id": str(oa["from"]["id"]), "room": oa.get("room")}
+        from routes import chat_helpers as _ch
+        from src.agent_loop import _season_room_names
+        names = _season_room_names(user) or _ch.room_names_of(wa)
+        ctx = {"roster": roster, "present": present, "here": here, "room_names": names, "hoh_id": hoh_id, "open_ask": open_ask, "reply_lines": _reply_lines(previous_reply, roster)}
+        inv = af.find_invite(text if isinstance(text, str) else "", ctx)
+        if not inv:
+            return None
+        return {**inv, "ctx": {**ctx, "invite": {k: inv.get(k) for k in ("id", "name", "room", "source", "line")}}}
+    except Exception as exc:
+        logger.warning("[orwell] invite context failed (fail-soft): %s", type(exc).__name__)
+        return None
+
+
+def follow_notes(who: str, label: str, moved_player: bool) -> list:
+    """The narrator's notes for an accepted invitation. The RULE is tied to the engine fact (the player is on their way with `who`, and the engine has the two together): the walk completes in this reply."""
+    return [
+        f"{who} invited the player and the player ACCEPTED: the engine has the two of them together in {label} now" + (", the player included: voice the two setting off and arriving together." if moved_player else ": voice the two arriving together."),
+        f"RULE (the player is on their way with {who}, an engine fact): at most ONE other houseguest may break in before the two arrive, with a single short word that does not hold them up; then the walk completes in THIS reply "
+        f"and {who} opens the talk in {label}. No second interruption, no second invitation, no one blocking the way, and {who} is never written as having gone somewhere else.",
+    ]
+
+
+async def commit_follow(inv: dict, text: Any, user: Optional[str], *, engine: Any = None, here: Optional[str] = None, room_names=None) -> Optional[dict]:
+    """Commit the yes to `inv` ({id, name, room, source}): both walks, through the engine's own levers. 'ask': the engine's open talk ask is accepted (`askToTalkAlone` places both). 'reply': a houseguest in the player's
+    room invited the player somewhere: the player walks (`moveTo`), then the houseguest's walk is the same lever with `invited` (their invitation is their consent; no roll). Returns {notes, done, committed} or None when
+    there is nothing to move (no place to go). Never raises."""
+    try:
+        from src import act_first as af
+        from routes import chat_helpers as _ch
+        if engine is None:
+            from src import orwell_engine as engine  # type: ignore[no-redef]
+        hid, who, dest = inv["id"], inv["name"], inv.get("room")
+        if inv.get("source") != "ask" and not dest:
+            named = [r for r in af.rooms_named(text if isinstance(text, str) else "", room_names) if r != "diary-room" and r != here]
+            dest = named[-1] if named else None
+        if inv.get("source") != "ask" and (not dest or dest == here):
+            return None
+        done: list = []
+        if inv.get("source") == "ask":
+            res = await engine.ask_to_talk_alone(hid, dest, True, user=user)
+            outcome = res.get("outcome") if isinstance(res, dict) else None
+            try:
+                _ch._refresh_beat_seq(user, res)
+            except Exception:  # failsoft-ok: the next engine call reconciles a stale token
+                pass
+            came = outcome == "accepted"
+            room = (res or {}).get("room") if isinstance(res, dict) else None
+            label = str((res or {}).get("roomName") or (room or "").replace("-", " ")) if came else ""
+            if came:
+                done = [("moveTo", {"room": room}, True)] if room and room != here else []
+                notes = follow_notes(who, label or "their room", bool(done))
+            else:
+                notes = [f"The player said yes to {who}'s ask for a word, but the game could not put them together just now ({outcome or 'no answer'}): nobody moved. Voice that in the fiction (the place is taken or the moment is not right); do not write them anywhere new."]
+            moved = bool(done)
+        else:
+            import json as _json
+            from src import tool_implementations as _ti
+            mv = await _ti.do_move_to(_json.dumps({"room": dest}), owner=user)
+            try:
+                out = _json.loads(mv.get("output") or "{}") if isinstance(mv, dict) else {}
+            except Exception:
+                out = {}
+            moved = isinstance(mv, dict) and not mv.get("error") and str(out.get("room") or "").lower() == dest
+            label = dest.replace("-", " ")
+            if not moved:
+                return {"notes": [f"The player said yes to {who}'s invitation, but the game did not let them reach {label}: nobody moved. Voice that in the fiction."], "done": [], "committed": False}
+            res = await engine.ask_to_talk_alone(hid, dest, False, user=user, invited=True)
+            outcome = res.get("outcome") if isinstance(res, dict) else None
+            try:
+                _ch._refresh_beat_seq(user, res)
+            except Exception:  # failsoft-ok: the next engine call reconciles a stale token
+                pass
+            came = outcome == "accepted"
+            done = [("moveTo", {"room": dest}, True)]
+            if came:
+                notes = follow_notes(who, label, True)
+            else:
+                notes = [f"The player went to {label} on {who}'s invitation but the game could not place {who} there ({outcome or 'no answer'}). Voice the player arriving alone and {who} not yet there; do not write them arriving."]
+        if done:
+            af.note_commit("moveTo", True)
+        if came:
+            _ON_THE_WAY[user or ""] = {"id": hid, "name": who, "room": dest or label}
+        try:
+            from src import orwell_sync_ledger as _led
+            _led.note_belt_fire(user, "follow-accepted" if came else "follow-blocked")
+        except Exception:  # failsoft-ok: telemetry only
+            pass
+        logger.info("[orwell] follow user=%s source=%s outcome=%s moved=%s", user, inv.get("source"), outcome, moved)  # no content
+        return {"notes": notes, "done": done, "committed": bool(came or moved)}
+    except Exception as exc:
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("follow:failed", exc, corrected="the ordinary path runs", user=user)
+        except Exception:  # failsoft-ok: the recorder itself is down
+            logger.warning("[orwell] follow failed (fail-soft): %s", exc)
+        return None
+
+
+async def follow_before_narrator(text: Any, user: Optional[str], client_msg_id: Optional[str] = None, *, previous_reply: Optional[str] = None, engine: Any = None) -> bool:
+    """ORW-1174: the player's plain yes to a standing invitation ('sure', 'yeah lets go', 'follow Kai inside', 'go upstairs with Kai') commits BOTH walks before the narrator speaks, whether or not act-first is on.
+    True when this slot owned the message (the player's own move parse is then switched off: it would walk the player away from the inviter); False when it did not (nothing committed, the ordinary path runs). Never raises."""
+    try:
+        _ON_THE_WAY.pop(user or "", None)  # a new message: last turn's walk is over
+        from src import act_first as af
+        if not isinstance(text, str) or not text.strip() or af.prefilter(text):
+            return False
+        t = af.strip_quotes(af.clean_text(text))
+        if not (af._CUE.search(t) or af._ACC_GO.search(t) or re.search(r"\blead\b|\bafter you\b", t, re.I)):
+            return False  # nothing yes-like in the words: no engine read is spent
+        if engine is None:
+            from src import orwell_engine as engine  # type: ignore[no-redef]
+        got = await invite_context(text, user, previous_reply, engine=engine)
+        if not got:
+            return False
+        ctx = got["ctx"]
+        acc = af.accept_intent(text, ctx)
+        if not acc:
+            return False
+        r = await commit_follow(acc, text, user, engine=engine, here=ctx.get("here"), room_names=ctx.get("room_names"))
+        if r is None:
+            return False
+        key = user or "default"
+        af.put_stash(key, {"outcome": "follow", "text": text, "done": r["done"], "pending": [], "blocked": [], "notes": r["notes"]})
+        if r["committed"]:
+            af.put_commit_memo(key, client_msg_id, r["notes"])
+        _DECIDED.add(user or "")
+        extra = {"previous_reply": previous_reply} if previous_reply else {}
+        await engine.resolve_player_move(text, f"move:{client_msg_id}" if client_msg_id else None, user=user, skip=["move", "bed"], **extra)  # the other text resolvers still run; the walk is the engine's already
+        return True
+    except Exception as exc:
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("follow:slot-failed", exc, corrected="the ordinary move parser runs", user=user)
+        except Exception:  # failsoft-ok: the recorder itself is down
+            logger.warning("[orwell] follow slot failed (fail-soft): %s", exc)
+        return False
+
+
 # ── ORW-1014 PR 2: the ACT-FIRST owner of this slot (flag ORWELL_ACT_FIRST, default OFF) ───────────────────────────
 _AF_ROOMS_ID = None
 
@@ -258,6 +446,11 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
             "room_names": names, "here": here, "people": people,
             "sleep_ok": bool(_player_means_going_to_bed(text) and _bedtime_board_allows(status)),
         }
+        # ORW-1174: the standing invitation (an open talk ask, or a houseguest here whose last line invited the player): the round sees it, so a yes can be read as a yes.
+        _inv = await invite_context(text, user, previous_reply, engine=engine, state=state, status=status, wa=wa) if not kind else None
+        if _inv:
+            ctx["invite"] = _inv["ctx"]["invite"]
+            ctx["roster"] = _inv["ctx"]["roster"]
         if call is None:
             from src.llm_core import llm_tool_call_async as call  # type: ignore[no-redef]
             from src.endpoint_resolver import resolve_session_headers
@@ -289,6 +482,20 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
                 pending.append(act)
                 continue
             ok = False
+            if tool == "followInvite":
+                fr = await commit_follow({"id": args["id"], "name": (ctx.get("roster") or {}).get(args["id"]) or "the houseguest", "room": args.get("room"), "source": args.get("source")},
+                                         text, user, engine=engine, here=here, room_names=names)
+                if fr is None:
+                    continue  # nothing to move (no place named): the ordinary path below reads the words
+                notes.extend(fr["notes"])
+                ok = bool(fr["committed"])
+                for d_ in fr["done"]:
+                    done.append(d_)
+                    af.note_commit(d_[0], bool(d_[2]))
+                if not ok:
+                    blocked.append(act)
+                af.note_commit("followInvite", ok)
+                continue
             if tool == "moveTo":
                 import json as _json
                 res = await _ti.do_move_to(_json.dumps(args), owner=user)

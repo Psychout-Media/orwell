@@ -1763,7 +1763,7 @@ async def call_in_favor(npc_id: str, ask: str | None = None, expected_beat_seq: 
 
 
 async def ask_to_talk_alone(npc_id: str, room: str | None = None, private: bool | None = None,
-                            expected_beat_seq: int | None = None, user: str | None = None) -> dict:
+                            expected_beat_seq: int | None = None, user: str | None = None, invited: bool | None = None) -> dict:
     """ORW-727b - the player asks a houseguest for a private word, or to come over. The engine picks the room, asks the
     houseguest's own consent and places both; returns the Vault-free `{outcome, room?, roomName?}` (never a reason or a number);
     null (None) pre-game or for an unknown houseguest."""
@@ -1772,6 +1772,8 @@ async def ask_to_talk_alone(npc_id: str, room: str | None = None, private: bool 
         args["room"] = room
     if private is not None:
         args["private"] = bool(private)
+    if invited:
+        args["invited"] = True  # ORW-1174: the houseguest in the player's room just invited the player along: their invitation is their consent
     if expected_beat_seq is not None:
         args["expectedBeatSeq"] = expected_beat_seq
     return await _call("askToTalkAlone", args, user=user)
