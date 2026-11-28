@@ -115,9 +115,11 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("'come here': the houseguest comes to the player's room and the player does not move; the hold keeps them there, then lapses as the hours pass and they wander again", async () => {
     // ORW-1129: the wander needs time before the day's next event: once an event is due the house waits for production's call (the test only chats, so a due event never clears), so the free moment has the hours of the hold and some more before it.
-    const roomyDay = (s: Stop): boolean => ((s.sess.getGameState() as { daySchedule?: { minutesUntil?: number } }).daySchedule?.minutesUntil ?? Number.POSITIVE_INFINITY) >= 360;
+    // The player must also be in a room: at a fresh morning after a competition they have no presence entry yet (main too), and with no company needed the scan would stop there with nowhere to come to.
+    // Hint 6: on seeds 1 and 7 the house is mostly still asleep at the free moment and the called houseguest stays put in the player's bedroom for the whole day (main too), so the wander is judged on a seed where the house is up.
+    const roomyDay = (s: Stop): boolean => roomOf(s, PLAYER) !== undefined && ((s.sess.getGameState() as { daySchedule?: { minutesUntil?: number } }).daySchedule?.minutesUntil ?? Number.POSITIVE_INFINITY) >= 360;
     const away = (s: Stop) => (s.sess.livingIds() as string[]).filter((id) => id !== PLAYER && roomOf(s, id) !== roomOf(s, PLAYER) && roomOf(s, id) !== "diary-room");
-    const { yes: { at, npc, r, from } } = await untilYes(11, { private: false }, { who: away, minCompany: 0, when: roomyDay });
+    const { yes: { at, npc, r, from } } = await untilYes(6, { private: false }, { who: away, minCompany: 0, when: roomyDay });
     expect(r.room).toBe(from);
     expect(roomOf(at, PLAYER)).toBe(from);
     expect(roomOf(at, npc)).toBe(from);
