@@ -1098,6 +1098,12 @@ function groupPlayerDossier(
 /** ORW-196: what `premiereIntros().remaining` shows for a houseguest who has not walked in yet (no name, no facets). */
 export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
 
+/** A ceremony, deal or betrayal the player can see: the records that always made a recap highlight. */
+function isRecapHighlight(e: { id: string; type?: string; hidden: boolean }): boolean { return !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal"); }
+
+/** ORW-1165: the event types the day digest consumes (they no longer also ride "your day"). */
+const DIGEST_EVENT_TYPES: ReadonlySet<string> = new Set(["premiere-entrance", "toast-speech", "bed-claim", "alliance", "alliance-pitch", "alliance-pitch-withdrawn", "alliance-break-away", "overheard", "house-event", "conversation"]);
+
 /** ORW-282: how many daily recaps the append-only log keeps (a season is well under this). */
 const DAILY_RECAP_LOG_CAP = 60;
 
@@ -18859,21 +18865,94 @@ export class GameSessionAdapter implements GameSession {
     return none;
   }
 
+  /**
+   * ORW-1165 - the day's digest: one line per moment the player witnessed, by event KIND (structure only, never prose meaning), in order. Lines are built from public names and the record's own event text;
+   * a talk is described by who it was with and how it went (its `interactionKind`), never by what was said. Hidden events never ride. Repeats fold into one line with a count; each kind is capped.
+   */
+  private buildDayDigest(
+    events: ReadonlyArray<{ id: string; type?: string; hidden: boolean; initiator: EntityId; witnessSet: readonly EntityId[]; content: string; interactionKind?: string }>,
+    isHighlight: (e: any) => boolean,
+    namesStranger: (c: string) => boolean,
+    withBed = true,
+  ): Array<{ kind: string; text: string; from: string[] }> {
+    const me = this.nameOf(PLAYER);
+    const you = (t: string): string => (t.startsWith(`${me} `) ? `You ${t.slice(me.length + 1)}` : t);
+    const out: Array<{ kind: string; text: string; from: string[] }> = [];
+    const talks = new Map<string, { idx: number; n: number; kind: string; base: string }>();
+    const toast = { idx: -1, host: false, names: [] as string[] };
+    const CAP: Record<string, number> = { arrival: 8, talk: 6, clash: 4, bond: 4, strategy: 4, gossip: 3, bed: 2, alliance: 4, overheard: 3, house: 3 };
+    const seen: Record<string, number> = {};
+    const push = (kind: string, text: string, from: string[]): number => {
+      if (seen[kind] !== undefined && CAP[kind] !== undefined && seen[kind]! >= CAP[kind]!) return -1;
+      seen[kind] = (seen[kind] ?? 0) + 1;
+      out.push({ kind, text: text.trim().slice(0, 200), from });
+      return out.length - 1;
+    };
+    for (const e of events) {
+      if (e.hidden) continue;
+      const t = e.type as string;
+      if (isHighlight(e)) { push(e.type === "deal" ? "deal" : e.type === "betrayal" ? "betrayal" : "ceremony", e.content, [e.id]); continue; }
+      if (!e.witnessSet.includes(PLAYER) || e.content.trim().length === 0) continue;
+      if (t === "premiere-entrance") { push("arrival", e.content === `${me} arrives` ? "You walked into the house" : e.content, [e.id]); continue; }
+      if (t === "toast-speech") {
+        const m = /^(.*) gives a toast$/.exec(e.content);
+        if (toast.idx < 0) toast.idx = push("toast", "", []);
+        if (toast.idx >= 0) out[toast.idx]!.from.push(e.id);
+        if (m && m[1] !== me) toast.names.push(m[1]!); else if (!m) toast.host = true;
+        continue;
+      }
+      if (t === "bed-claim") { if (e.content.startsWith(`${me} `)) push("bed", you(e.content), [e.id]); continue; }
+      if (t === "alliance" || t.startsWith("alliance-")) { push("alliance", you(e.content), [e.id]); continue; }
+      if (t === "overheard") { push("overheard", e.content, [e.id]); continue; }
+      if (t === "house-event") { push("house", you(e.content), [e.id]); continue; }
+      if (t === "conversation") {
+        const others = e.witnessSet.filter((w) => w !== PLAYER).map((w) => this.nameOf(w));
+        if (others.length === 0) continue;
+        const who = others.length <= 3 ? (others.length === 3 ? `${others[0]}, ${others[1]} and ${others[2]}` : others.join(" and ")) : `the room (${others.length} houseguests in earshot)`;
+        const ik = e.interactionKind ?? "";
+        const kind = /conflict|betray/.test(ik) ? "clash" : /alliance|strateg/.test(ik) ? "strategy" : /bond|showmance|flirt/.test(ik) ? "bond" : /gossip/.test(ik) ? "gossip" : "talk";
+        const base = e.initiator === PLAYER
+          ? (kind === "clash" ? `You clashed with ${who}` : kind === "strategy" ? `You talked game with ${who}` : kind === "bond" ? `You grew closer to ${who}` : kind === "gossip" ? `You traded whispers with ${who}` : `You talked with ${who}`)
+          : others.length === 1 ? `${who} came to talk with you` : `You were there when ${who} talked`;
+        const key = `${kind}|${base}`;
+        const have = talks.get(key);
+        if (have) { have.n++; out[have.idx]!.text = `${have.base} (${have.n} times)`; out[have.idx]!.from.push(e.id); continue; }
+        const idx = push(kind, base, [e.id]);
+        if (idx >= 0) talks.set(key, { idx, n: 1, kind, base });
+      }
+    }
+    if (toast.idx >= 0) {
+      const names = [...new Set(toast.names)].slice(0, 10);
+      out[toast.idx]!.text = `The champagne toast: ${toast.host ? "the host opened it, " : ""}${names.length ? `toasts from ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]}` : "the house raised a glass"}`;
+    }
+    // The player's own bed at close (structural: the engine's bed table), when no claim line already says it.
+    if (withBed && !out.some((d) => d.kind === "bed")) {
+      const beds = this.live?.beds;
+      const room = beds ? sleepRoomOf(beds, PLAYER, this.live?.hoh) : undefined;
+      if (room) out.push({ kind: "bed", text: `You settled in for the night in ${this.roomName(room)}`, from: [] });
+    }
+    return out.filter((d) => d.text.length > 0 && !namesStranger(d.text));
+  }
+
   /** The digest for `day`, stitched from the tail since the persisted cursors; records it as the latest recap and advances the cursors. Does NOT touch `dayNumber`. */
   private buildRecapForDay(day: number): DailyRecapView {
     const s = this.live!;
     const allEvents = this.record?.events() ?? [];
     const evFrom = Math.min(s.dailyRecapEventCursor ?? 0, allEvents.length);
-    const isHighlight = (e: (typeof allEvents)[number]): boolean => !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal");
+    const isHighlight = isRecapHighlight;
     // ORW-828 (PT-7 again): the Day-1 public pre-show tie ("it is known in the house: A and B ...") is witnessed by the whole house, so it rode "your day" on the premiere night naming two houseguests the player had not
     // met yet. The same stranger rule as the surfaced rumors below applies to every recap line: a line that names a houseguest the player has not met waits (it stays in the record and the journal). Public names only, never prose meaning.
     const strangers = this.recapStrangers(allEvents);
     const namesStranger = (content: string): boolean => strangers.names.some((n) => content.includes(n));
-    const highlights = allEvents.slice(evFrom).filter(isHighlight).map((e) => e.content).filter((c) => !namesStranger(c));
+    // ORW-1165 (Ryne's Day 1 digest had highlights 0 after a full premiere): only ceremony, deal and betrayal events counted as highlights, so the arrivals, the toast, the bed, alliance scenes and the player's own talks never
+    // reached the review (they fell to "your day", capped at the last five, which the toast speeches filled). The digest now keeps one line per moment the player WITNESSED, by event kind, in the order it happened.
+    const digest = this.buildDayDigest(allEvents.slice(evFrom), isHighlight, namesStranger);
+    const highlights = digest.map((d) => d.text);
+    const consumed = (e: (typeof allEvents)[number]): boolean => DIGEST_EVENT_TYPES.has(e.type as string);
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "said-aloud" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
+      .filter((e) => !e.hidden && !isHighlight(e) && !consumed(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "said-aloud" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
       .map((e) => e.content.trim().slice(0, 200)).filter((c) => !namesStranger(c)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
@@ -18886,7 +18965,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-400: the same overheard/retold line is listed once (first kept, order stable).
     const surfaced = [...new Set(surfacedRaw)];
     const hook = this.buildDailyRecapHook(day, surfaced);
-    const recap: DailyRecapView = { day, highlights, surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
+    const recap: DailyRecapView = { day, highlights, ...(digest.length > 0 ? { digest } : {}), surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
     if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
       // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).
@@ -18908,6 +18987,7 @@ export class GameSessionAdapter implements GameSession {
         });
       }
     }
+    (s.dailyRecapRanges ??= {})[day] = [evFrom, allEvents.length]; // ORW-1165: where in the append-only record this day's recap read, so the digest of a closed day can be rebuilt
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
     // ORW-400: the day rolled for a played game - last night's room tenure and conversation partners do not carry into the morning. presenceBase and the shared rng are untouched (headless/golden runs identical).
@@ -18971,11 +19051,35 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-1165 - the closed day's recap rebuilt with today's digest builder over the same slice of the record it first read (a day that was materialized before the digest grew is re-issued from this). Pure read:
+   * nothing is stored and no cursor moves. The surfaced lines, the hook and "your day" are the ones the day already made. null when the day has no recap or its record slice is unknown.
+   */
+  private rebuildDailyRecap(day: number): DailyRecapView | null {
+    const s = this.live;
+    if (!s) return null;
+    const stored = s.lastDailyRecap?.day === day ? s.lastDailyRecap : (s.dailyRecapLog ?? []).find((r) => r.day === day);
+    if (!stored) return null;
+    let range = s.dailyRecapRanges?.[day];
+    if (!range && s.lastDailyRecap?.day === day) { // a recap made before ranges were kept: the latest one ends at the live cursor and starts where the day before ended (0 for the first)
+      const prevEnd = day <= 1 ? 0 : s.dailyRecapRanges?.[day - 1]?.[1];
+      if (prevEnd !== undefined && s.dailyRecapEventCursor !== undefined) range = [prevEnd, s.dailyRecapEventCursor];
+    }
+    if (!range) return null;
+    const allEvents = this.record?.events() ?? [];
+    const strangers = this.recapStrangers(allEvents);
+    const namesStranger = (content: string): boolean => strangers.names.some((n) => content.includes(n));
+    const digest = this.buildDayDigest(allEvents.slice(range[0], range[1]), isRecapHighlight, namesStranger, false);
+    const { digest: _old, highlights: _h, ...rest } = stored as DailyRecapView;
+    return { ...rest, highlights: digest.map((d) => d.text), ...(digest.length > 0 ? { digest } : {}) } as DailyRecapView;
+  }
+
+  /**
    * 0102 (PO review 2026-06-27 redesign, #884) — re-fetch the most recently CLOSED day's digest
    * (materialized once, at the `turnIn` that closed it). `null` before any day has closed. Vault-free,
    * reproducible: re-reading returns the exact same materialized view every time (no re-computation).
    */
-  dailyRecap(): DailyRecapView | null {
+  dailyRecap(opts?: { rebuildDay?: number }): DailyRecapView | null {
+    if (opts?.rebuildDay !== undefined) return this.rebuildDailyRecap(opts.rebuildDay);
     return this.live?.lastDailyRecap ?? null;
   }
 

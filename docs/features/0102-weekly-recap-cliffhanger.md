@@ -246,3 +246,9 @@ week-roll, but suppress the **hook** when no in-motion thread is eligible, so a 
 recap with no manufactured cliffhanger.)*
 
 ## Tracks #884
+
+## ORW-1165: the recap is its own message, and the digest covers the day
+
+- Delivery: the turnIn result's `dailyRecap` is saved by the front end as its own chat row (`metadata.kind = "day-recap"`, header "Day N in review"), between the night and the morning, once per day (a replayed turn start saves a missed day before that turn's reply). The narrator is told it is already shown and does not voice it. No model call builds the card.
+- Content: `buildDayDigest` keeps one line per moment the player witnessed, by kind (arrival, toast, bed, deal, alliance, strategy, bond, talk, gossip, clash, betrayal, ceremony, overheard, house). Before, only ceremony, deal and betrayal events counted, so a premiere day had none. Talks are described by who they were with and how they went, never by what was said. Each line lists the recorded events it was built from (`digest[].from`), all witnessed and none hidden.
+- Re-issue: the engine keeps the record slice each recap read (`dailyRecapRanges`); `dailyRecap {rebuildDay}` rebuilds a closed day as a pure read. `frontend/scripts/reissue_day_recap.py` (dry run by default) calls the admin route `POST /api/admin/ops/reissue-day-recap`.

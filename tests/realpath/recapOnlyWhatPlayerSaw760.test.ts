@@ -19,8 +19,13 @@ describe("every recap line is a scene the player was in (played)", () => {
         if (r && r.day !== recaps[recaps.length - 1]?.recap.day) {
           const events = s.engine.events.queryAll();
           const seen = (text: string): boolean => events.some((e) => !e.hidden && e.witnessSet.includes(PLAYER) && (String(e.content) === text || String(e.content).trim().slice(0, 200) === text));
-          const lines = [...r.highlights, ...(r.yourDay ?? [])];
-          recaps.push({ recap: r, offenders: lines.filter((l) => !seen(l)) });
+          // ORW-1165: a digest line is built from recorded events (aggregated talks, the toast), so it is checked by what it is built from: every source id is a recorded event the player witnessed, none hidden, and
+          // a line with no source is the player's own bed. A highlight with no digest entry is still checked by its text, as before.
+          const byId = new Map(events.map((e) => [e.id, e]));
+          const digestOk = (d: { from: string[] }): boolean => d.from.every((id) => { const e = byId.get(id); return !!e && !e.hidden && e.witnessSet.includes(PLAYER); });
+          const digestTexts = new Set((r.digest ?? []).map((d) => d.text));
+          const lines = [...r.highlights.filter((l) => !digestTexts.has(l)), ...(r.yourDay ?? [])];
+          recaps.push({ recap: r, offenders: [...lines.filter((l) => !seen(l)), ...(r.digest ?? []).filter((d) => !digestOk(d)).map((d) => d.text)] });
         }
         return recaps.length >= 4;
       }, { user: `wf-${seed}` });

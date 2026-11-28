@@ -1983,14 +1983,13 @@ def _bedtime_tool_message(turn_in_output) -> str:
 
 
 def _bedtime_recap_directive(turn_in_output) -> str:
-    """ORW-382 (Ryne, 11-15: the day in review "between going to sleep and waking, almost as if you're like dreaming"): when the turnIn result carries a `dailyRecap` with anything in it, tell the narrator to voice it
-    BEFORE the new morning - on every bedtime, the premiere night included. Empty/absent recap => '' (nothing to voice; never invent one)."""
+    """ORW-382 / ORW-1165: when the turnIn result carries a `dailyRecap` with anything in it, the game has ALREADY shown it to the player as its own "Day N in review" message (ORW-1165), so the narrator is told not to
+    voice it again and to open on the new morning. Empty/absent recap => '' (nothing was shown)."""
     try:
         data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
         rec = data.get("dailyRecap") if isinstance(data, dict) else None
         if isinstance(rec, dict) and any(rec.get(k) for k in ("highlights", "yourDay", "surfaced")):
-            return (" The result carries a `dailyRecap`: BEFORE the new morning, voice it as a short dreamlike day-in-review as the player drifts off to sleep - only the facts in its highlights / yourDay / surfaced, "
-                    "never a list, never anything it does not contain.")
+            return (" The result carries a `dailyRecap`: the game has already shown it to the player as its own day-in-review message, so do NOT voice, summarise or repeat it - open on the new morning.")
     except Exception:
         pass  # failsoft-ok: tolerant parse of model output: a non-JSON candidate is skipped and the next one tried
     return ""
@@ -2031,7 +2030,8 @@ def _mark_recap_voiced(owner, session_id, turn_in_output) -> None:
 
 
 async def _recap_replay_note(owner, session_id) -> str:
-    """The system note that makes this turn voice a closed day's recap that was never voiced, or '' (nothing newer, an empty recap, unreadable). Marks the day voiced when it returns a note."""
+    """ORW-1155 / ORW-1165: a closed day's recap that was never shown is saved now as its own "Day N in review" message, ahead of this turn's reply (once per day: the day is marked, and a card already in the chat
+    for the day is never doubled). Returns the narrator's note that it is already shown (so the reply does not voice it), or '' (nothing newer, an empty recap, unreadable)."""
     try:
         from src import orwell_engine as _oe_rc
         rec = await _oe_rc.daily_recap(user=owner or "default")
@@ -2042,10 +2042,10 @@ async def _recap_replay_note(owner, session_id) -> str:
         if day <= _RECAP_VOICED_DAY.get(k, 0):
             return ""
         _RECAP_VOICED_DAY[k] = day
-        body = json.dumps({"dailyRecap": rec}, ensure_ascii=False)[:3000]
-        return ("(Production note, not for the player.) The day that just closed was never voiced as a day-in-review, and the engine's recap for it is below. Open this reply with it, BEFORE anything of the new "
-                "morning: a short dreamlike day-in-review as the player drifts off, only the facts in its highlights / yourDay / surfaced, never a list, never anything it does not contain. Then play out the "
-                "player's message as normal. Do not call dailyRecap or turnIn for this.\n" + body)
+        from src import orwell_day_recap as _dr
+        _dr.save_day_recap(owner, rec)
+        return ("(Production note, not for the player.) The day that just closed has been shown to the player as its own day-in-review message. Do not voice, summarise or repeat it; play out the player's message as normal. "
+                "Do not call dailyRecap or turnIn for this.")
     except Exception as _e:
         _failsoft_note("agent_loop:_recap_replay_note", _e)
         return ""
