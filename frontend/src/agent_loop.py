@@ -4511,6 +4511,19 @@ def _player_summoned(last_user, name) -> bool:
     return bool(_SUMMON_RE.search(text))
 
 
+def _player_invited_unnamed(last_user, roster_names) -> bool:
+    """ORW-1168: the player's message invites someone along ("do you wanna come with?", "invite her outside", "bring them out") and names NO houseguest, so `_player_summoned` (which needs a name)
+    could not match it. True only for that shape; deterministic, no LLM."""
+    try:
+        from src import act_first as _af
+        if not _af.escort_cue(last_user or "", strict=True):
+            return False
+        low = (last_user or "").lower()
+        return not any(re.search(r"(?<![\w'])" + re.escape(str(n).split()[0].lower()) + r"(?![\w'])", low) for n in (roster_names or {}).values() if n and str(n).split())
+    except Exception:  # failsoft-ok: a hiccup keeps today's stricter rule
+        return False
+
+
 def _npc_move_instructions(room_names=None) -> str:
     """The NPC-move extraction instruction block (ORW-294: shared verbatim by _move_npc_extract and the merged call). `room_names`: ORW-466, the season's themed names."""
     rooms = _room_id_list([r for r in _HOUSE_ROOMS if r != "diary-room"], room_names)  # NPCs never walk the player's DR
@@ -4657,9 +4670,26 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                 return 0
             if _proom:
                 _kept = []
+                _unnamed_invite = _player_invited_unnamed(last_user, _roster_names)  # ORW-1168: "invite her outside" names nobody, yet it is a request
+                try:
+                    from src.orwell_player_move import escort_declined_ids as _esc_no
+                    _declined = _esc_no(owner)
+                except Exception:  # failsoft-ok: no refusal list means today's rules
+                    _declined = set()
                 for hid, room in picks:
-                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)) and hid not in _companion_ids(owner):  # ORW-1030: an agreed companion walking with the player is no unrequested arrival
+                    if room == _proom and hid in _declined:
+                        logger.info(f"[orwell] auto-move-npc: dropped the arrival of {hid}, whom the engine declined to bring along")
+                        continue
+                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)) and not _unnamed_invite and hid not in _companion_ids(owner):  # ORW-1030: an agreed companion walking with the player is no unrequested arrival
                         logger.info(f"[orwell] auto-move-npc: dropped unrequested arrival of {hid} into the player's room")
+                        # ORW-1168: the prose already showed them arriving; the engine did not move them. Correct the narration next turn, never leave it silently contradicted.
+                        try:
+                            from routes import chat_helpers as _ch_d
+                            _ch_d._reground_enqueue(_ch_d._desync_key(owner), (
+                                f"RE-GROUND ON WHO CAME - last turn's narration brought {_roster_names.get(hid) or 'a houseguest'} into the player's room, but the engine did not move them and the player had not asked for them. "
+                                "Re-read `whereabouts` and keep them where the engine has them; do not narrate them here."))
+                        except Exception as _fs_exc:
+                            _failsoft_note("agent_loop:_auto_move_npc:5", _fs_exc)
                         continue
                     _kept.append((hid, room))
                 picks = _kept

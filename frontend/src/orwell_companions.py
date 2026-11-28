@@ -48,6 +48,14 @@ def companions_of(user) -> Dict[str, str]:
     return dict(_COMPANIONS.get(_key(user)) or {})
 
 
+def add(user, hid: str, name: str) -> None:
+    """ORW-1168: an escort the houseguest agreed to (the engine placed them with the player); they stay until the player ends it."""
+    store = _COMPANIONS.setdefault(_key(user), {})
+    if hid in store or len(store) >= _MAX_COMPANIONS:
+        return
+    store[hid] = name
+
+
 def clear(user) -> None:
     _COMPANIONS.pop(_key(user), None)
     _LAST_PRESENT.pop(_key(user), None)
