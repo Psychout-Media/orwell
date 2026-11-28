@@ -271,6 +271,10 @@ write_config() {
       # (the player token is refused there); the front-end sends it on admin calls only.
       echo "# admin/God-Mode secret: required on /admin/* (the player token is refused there)"
       echo "ORWELL_ENGINE_ADMIN_TOKEN=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+      # ORW-1173: the ops-script secret (/api/admin/ops/*). Unset, the front-end mints a random per-process
+      # token and no outside script can authenticate. Minted once here; orwell-update.sh backfills older boxes.
+      echo "# ops-script secret: the front-end's internal token for /api/admin/ops/* (never printed)"
+      echo "ORWELL_INTERNAL_TOKEN=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
       # engine save dir — pin it INSIDE data/ so saves live where docs, update, and the
       # factory-reset script all expect (the engine default is ./.orwell-data, which hid the
       # save outside data/ and made factory-reset miss it). Preserved across updates (data/ is

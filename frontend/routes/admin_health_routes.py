@@ -1572,6 +1572,15 @@ def _credit_section() -> dict:
         return {"tripped": [], "degraded": False, "dailySpendUsd": {}}
 
 
+def _image_spend_section() -> dict:
+    """ORW-1146 - today's (UTC) image count and spend against the deployment's daily cap. A failed read is empty."""
+    try:
+        from src import orwell_image_spend
+        return orwell_image_spend.snapshot()
+    except Exception:
+        return {}
+
+
 def _season_section() -> dict:
     """ORW-971 - the held seasons and the season-start steps still owed or failed, for EVERY owner (the operator's view; counts, ids and machine words only).
     ``{holds: [{owner, ageS, authored, total, missing, windowS, overdue}], steps: [{owner, step, status, attempts, reason, ageS}]}``. Best-effort: a failed read is empty."""
@@ -2004,6 +2013,7 @@ async def _health_snapshot(user: str | None) -> dict:
         "backup": _backup_section(),  # ORW-1047: last scheduled backup result and age (RED alarm backup-failing when failed or over 26 h)
 
         "providerCredit": _credit_section(),  # ORW-1019: out-of-credit hosts + daily spend
+        "imageSpend": _image_spend_section(),  # ORW-1146: today's image count and spend against the daily cap
         "seasonHolds": _season_section(),  # ORW-971: every held season (owner, age, authored/total) and every owed or failed start step
         # F10 / BL-019 — the faithfulness-judge health posture (dark ⇒ the RED alarm above fires).
         "faithfulness": faithfulness,
@@ -2802,6 +2812,12 @@ function render(d) {
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];
+  rows.push(["Image spend today", (function (s) {  // ORW-1146
+    if (!s || s.count == null) return '<span class="sub">—</span>';
+    const cap = s.capUsd != null ? `of $${Number(s.capUsd).toFixed(2)} cap` : `(no cap)`;
+    const state = s.capReached ? B(false, `CAP REACHED`) : B(true, `OK`);
+    return `${state} ${esc(s.count)} image(s) · $${Number(s.usd).toFixed(2)} ${cap}${s.refused ? ` · ${esc(s.refused)} refused` : ``} · ${esc(s.deployment)}, UTC ${esc(s.date)}`;
+  })(d.imageSpend)]);
   document.getElementById("grid").innerHTML = rows.map(r => '<div class="k">' + esc(r[0]) + "</div><div>" + r[1] + "</div>").join("") +
     '<div class="k">Last backup</div><div>' + backupLine(d.backup) + "</div>";
   // #1599 WI3 — the RED alarm banner: each game-breaking signal (or auto-corrected fault) as its

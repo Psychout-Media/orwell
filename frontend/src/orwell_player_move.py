@@ -69,6 +69,146 @@ async def resolve_player_move_before_narrator(text: Any, user: Optional[str], cl
         return None
 
 
+# ── ORW-1168: an ESCORT ("come with me", "invite her outside") commits the houseguest's walk too ─────────────────────────────
+#: ORW-1168: the houseguests the engine said NO for this turn's escort; the narrated-move belt never moves them over that answer.
+_ESCORT_DECLINED: dict = {}
+
+
+def escort_declined_ids(user) -> set:
+    return set(_ESCORT_DECLINED.get(user or "") or ())
+
+
+def _recent_ids(roster: dict, texts) -> list:
+    """Houseguest ids named in `texts` (newest text first; inside one text, the one named last first). Roles only: no text is kept."""
+    import re
+    out: list = []
+    for tx in texts:
+        low = (tx or "").lower()
+        hits = []
+        for hid, nm in roster.items():
+            first = str(nm or "").split()[0].lower() if str(nm or "").split() else ""
+            if first:
+                pos = [m.start() for m in re.finditer(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", low)]
+                if pos:
+                    hits.append((max(pos), hid))
+        out += [h for _, h in sorted(hits, reverse=True) if h not in out]
+    return out
+
+
+def _last_speaker(previous_reply, roster: dict, present_ids: set):
+    import re
+    tags = [m.group(1).strip().lower() for m in re.finditer(r"^\s*@\[([^\]]+)\]", previous_reply or "", re.M)]
+    by_name = {str(n).strip().lower(): i for i, n in roster.items()}
+    for nm in reversed(tags):
+        hid = by_name.get(nm)
+        if hid in present_ids:
+            return hid
+    return None
+
+
+async def escort_before_narrator(text: Any, user: Optional[str], client_msg_id: Optional[str] = None, *, previous_reply: Optional[str] = None,
+                                 recent_user=(), engine: Any = None) -> Optional[dict]:
+    """ORW-1168: the player's words invite a houseguest along to a named room ("do you wanna come with?", "invite her outside"). The engine commits BOTH walks before the narrator speaks:
+    the houseguest's through `askToTalkAlone` (private:false: they go to that room, or DECLINE on their own read of the player) and the player's own move. What the engine did rides the
+    stash as notes the narrator must voice (she came / she said no); the narration never moves a houseguest the engine did not. Returns {notes, done, committed} for `apply_escort`, or None when the words held no escort. Never raises."""
+    try:
+        _ESCORT_DECLINED.pop(user or "", None)  # a new message: last turn's refusals are over
+        from src import act_first as af
+        if not isinstance(text, str) or not af.escort_cue(text):
+            return None
+        if engine is None:
+            from src import orwell_engine as engine  # type: ignore[no-redef]
+        state = await engine.get_game_state(user=user)
+        if not isinstance(state, dict) or state.get("started") is False:
+            return None
+        status = await engine.game_status(user=user)
+        pend = ((status or {}).get("pending") or {}) if isinstance(status, dict) else {}
+        if isinstance(pend, dict) and (pend.get("kind") or "").strip():
+            return None  # a card decision is open: the card owns the turn
+        wa = await engine.whereabouts(user=user)
+        here = (wa or {}).get("room") if isinstance(wa, dict) else None
+        if not here:
+            return None
+        roster = {str(h.get("id")): str(h.get("name")) for h in (state.get("house") or []) if isinstance(h, dict) and h.get("id") and h.get("name") and str(h.get("status") or "active") == "active"}
+        present = {str(p.get("id")) for p in ((wa or {}).get("present") or []) if isinstance(p, dict) and p.get("id")}
+        from routes import chat_helpers as _ch
+        from src.agent_loop import _HOUSE_ROOMS, _season_room_names
+        names = _season_room_names(user) or _ch.room_names_of(wa)
+        ctx = {"room_names": names, "here": here, "rooms": list(_HOUSE_ROOMS), "roster": roster,
+               "recent_ids": _recent_ids(roster, [t for t in recent_user if t and t != text] + [previous_reply or ""]),
+               "addressee": _last_speaker(previous_reply, roster, present)}
+        intent = af.escort_intent(text, ctx)
+        if not intent:
+            return None
+        hid, who, dest = intent["id"], intent["name"], intent["room"]
+        res = await engine.ask_to_talk_alone(hid, dest, False, user=user)
+        outcome = res.get("outcome") if isinstance(res, dict) else None
+        if isinstance(res, dict):
+            try:
+                _ch._refresh_beat_seq(user, res)
+            except Exception:  # failsoft-ok: the next engine call reconciles a stale token
+                pass
+        came = outcome == "accepted"
+        moved = False
+        if dest != here:
+            from src import tool_implementations as _ti
+            import json as _json
+            mv = await _ti.do_move_to(_json.dumps({"room": dest}), owner=user)
+            try:
+                out = _json.loads(mv.get("output") or "{}") if isinstance(mv, dict) else {}
+            except Exception:
+                out = {}
+            moved = isinstance(mv, dict) and not mv.get("error") and str(out.get("room") or "").lower() == dest
+        label = dest.replace("-", " ")
+        notes = []
+        if came:
+            notes.append(f"{who} AGREED and the engine has them in {label} now" + (" with the player, who walked there too: voice the two arriving together." if moved else ", where the player already stands: voice them arriving. Whatever trip the player describes ends here, with the two together."))
+        elif outcome is None:
+            notes.append(f"The player asked {who} along to {label}, but the game could not place them: {who} did NOT come. Do not write them arriving.")
+        else:
+            notes.append(f"The player asked {who} along to {label} and {who} did NOT come (the engine answered: {outcome}). Voice {who} saying no in character, with no reason given, or the ask going nowhere; "
+                         f"{who} stays where they were. NEVER write {who} walking out with the player.")
+        if moved:
+            notes.append(f"The player is NOW in {label}: voice the move.")
+        done = [("moveTo", {"room": dest}, True)] if moved else []
+        if not came:
+            _ESCORT_DECLINED[user or ""] = {hid}
+        if moved:
+            af.note_commit("moveTo", True)
+        try:
+            from src import orwell_sync_ledger as _led
+            _led.note_belt_fire(user, "escort-accepted" if came else "escort-declined")
+            if came and dest != here:
+                from src import orwell_companions as _oc
+                _oc.add(user, hid, who)  # ORW-1030: an agreed companion stays with the player until the player ends it
+        except Exception:  # failsoft-ok: telemetry and the companion store are aids; the engine board holds the truth
+            pass
+        logger.info("[orwell] escort user=%s outcome=%s moved=%s", user, outcome, moved)  # no content
+        return {"notes": notes, "done": done, "committed": bool(moved or came)}
+    except Exception as exc:
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("escort:failed", exc, corrected="the ordinary path runs", user=user)
+        except Exception:  # failsoft-ok: the recorder itself is down
+            logger.warning("[orwell] escort failed (fail-soft): %s", exc)
+        return None
+
+
+def apply_escort(user: Optional[str], payload: Optional[dict], client_msg_id: Optional[str] = None) -> None:
+    """Hand the escort's notes to the narrator (the stash the agent loop reads), AFTER act-first / the parser ran (each writes its own stash), and mark the player's move decided so the
+    after-reply move belt never writes a second move over it. Never raises."""
+    try:
+        if not payload:
+            return
+        from src import act_first as af
+        merged = af.add_stash_notes(user or "default", payload.get("notes") or [], payload.get("done") or [])
+        if payload.get("committed"):
+            af.put_commit_memo(user or "default", client_msg_id, merged)
+        _DECIDED.add(user or "")
+    except Exception:  # failsoft-ok: the engine already holds the truth; only the narrator's note is lost
+        logger.warning("[orwell] escort hand-off skipped", exc_info=True)
+
+
 # ── ORW-1014 PR 2: the ACT-FIRST owner of this slot (flag ORWELL_ACT_FIRST, default OFF) ───────────────────────────
 _AF_ROOMS_ID = None
 
